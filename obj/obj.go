@@ -1,23 +1,27 @@
 package obj
 
 type RuntimeConfig struct {
+	WorkspaceConfig      WorkspaceConfig
+	ExecTarget           ExecTarget
 	DebugMode            bool
 	WorkspaceRoot        string
 	WorkspaceDir         string
-	WorkspaceConfig      WorkspaceConfig
 	CacheDir             string
 	Platform             string
 	TmpDir               string
-	SandboxDir           string
+	ExecRootDir          string
 	ThirdPartyFiles      map[string]ThirdPartyFileInfo
 	ThirdPartyFinalPaths map[string]string
+	//RuleDir              string
+	RuleFile string
 }
 
 type WorkspaceConfig struct {
-	WorkspaceRoot string             `yaml:"workspace_root"`
-	RulesDir      string             `yaml:"rules_directory"`
-	WorkspaceVars []WorkspaceVar     `yaml:"workspace_vars"`
-	ThirdParty    []ThirdPartyConfig `yaml:"third_party"`
+	WorkspaceRoot  string             `yaml:"workspace_root"`
+	RulesDir       string             `yaml:"rules_directory"`
+	RulesCommonDir string             `yaml:"rules_common_directory"`
+	WorkspaceVars  []WorkspaceVar     `yaml:"workspace_vars"`
+	ThirdParty     []ThirdPartyConfig `yaml:"third_party"`
 }
 
 type WorkspaceVar struct {
@@ -37,12 +41,14 @@ type ThirdPartyConfig struct {
 	SHA256s  map[string]string `yaml:"sha256"`
 }
 
-type Target struct {
+type ExecTarget struct {
 	Name   string         `yaml:"name"`
 	Rule   string         `yaml:"rule"`
 	Config map[string]any `yaml:"config"`
 }
 
 type BuildFile struct {
-	Targets []Target `yaml:"targets"`
+	Targets []ExecTarget `yaml:"targets"`
 }
+
+var WorkspaceFile string

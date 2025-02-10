@@ -16,20 +16,20 @@ Additionaly, Kamaji provides a mechanism to download third-party dependencies an
 
 ## Usage
 
-```bash
+``bash
 kamaji <target>
-```
+``
 
 When you run `kamaji <target>`, it will execute the target with the given name. kamaji will look for a `BUILD.yaml` file in the current directory and execute the target specified in the `BUILD.yaml` file. BUILD.yaml file location can be specified using the `--build` flag.
 
-```bash
+``bash
 kamaji <target> --build <build_file>
-```
+``
 Additionaly, kamaji provides a mechanism to pass additional arguments to the target binary or a script.
 
-```bash
+``bash
 kamaji <target> -- <additional_arguments>
-```
+``
 
 
 

@@ -4,16 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"kamaji/execroot"
 	"kamaji/obj"
 	"kamaji/rt"
 	"kamaji/tools"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
-func prepareCmdline(target obj.Target) (string, error) {
+func prepareCmdline(target obj.ExecTarget) (string, error) {
 	convertToJSON := func(value any) (string, error) {
 		switch v := value.(type) {
 		case map[any]any:
@@ -52,13 +54,45 @@ func prepareCmdline(target obj.Target) (string, error) {
 	return cmdline, nil
 }
 
-func Run(workspaceConfig obj.WorkspaceConfig, target obj.Target, pythonArgs ...string) error {
-	err := tools.CreateSandbox(target)
+func Run(workspaceConfig obj.WorkspaceConfig, target obj.ExecTarget, pythonArgs ...string) error {
+	err := execroot.CreateExecRootDir(target)
 	if err != nil {
 		return err
 	}
 
-	err = tools.CopyThirdPartyIntoSandbox()
+	err = execroot.CopyThirdPartyIntoExecRootDir()
+	if err != nil {
+		return err
+	}
+
+	// create used rules to rules directory in execroot
+	rulesDirInExecRoot := filepath.Join(rt.Config.ExecRootDir, "rules")
+	err = os.MkdirAll(rulesDirInExecRoot, 0700)
+	if err != nil {
+		return err
+	}
+
+	commonDirInExecRoot := filepath.Join(rt.Config.ExecRootDir, "common")
+
+	ruleDir := filepath.Dir(target.Rule)
+
+	linkSource := filepath.Join(rt.Config.WorkspaceConfig.RulesDir, ruleDir)
+	linkTarget := filepath.Join(rulesDirInExecRoot, ruleDir)
+	// create a softlink in execroot/rules to the source
+	err = os.Symlink(linkSource, linkTarget)
+	if err != nil {
+		return err
+	}
+
+	linkSource = filepath.Join(rt.Config.WorkspaceConfig.RulesDir, "common")
+	err = os.Symlink(linkSource, commonDirInExecRoot)
+	if err != nil {
+		return err
+	}
+
+	targetDir := filepath.Join(rt.Config.ExecRootDir, "origin")
+	sourceDir := os.Getenv("PWD")
+	err = tools.MirrorDirectoryWithSymLinks(sourceDir, targetDir)
 	if err != nil {
 		return err
 	}
@@ -80,10 +114,13 @@ func Run(workspaceConfig obj.WorkspaceConfig, target obj.Target, pythonArgs ...s
 		log.Printf("Running command:\n%s\n", cmdline)
 	}
 
+	pythonPath := workspaceConfig.RulesDir + "/" + rt.Config.WorkspaceConfig.RulesCommonDir
 	cmd := exec.Command("bash", "-c", cmdline)
+	cmd.Dir = rt.Config.ExecRootDir + "/" + "origin"
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "BUILD_WORKSPACE_DIRECTORY="+workspaceConfig.WorkspaceRoot)
 	cmd.Env = append(cmd.Env, "KAMAJI_ORGANIZATION_DOMAIN="+workspaceConfig.WorkspaceVars[0].Org_Domain)
+	cmd.Env = append(cmd.Env, "PYTHONPATH="+pythonPath)
+
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

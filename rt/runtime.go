@@ -17,7 +17,7 @@ var Config obj.RuntimeConfig
 func readWorkspaceConfig() (obj.WorkspaceConfig, error) {
 	workspaceConfig := obj.WorkspaceConfig{}
 
-	workspaceFile, err := os.Open(filepath.Join(Config.WorkspaceDir, "kamaji.workspace.yaml"))
+	workspaceFile, err := os.Open(filepath.Join(Config.WorkspaceDir, obj.WorkspaceFile))
 	if err != nil {
 		return workspaceConfig, err
 	}
@@ -42,14 +42,14 @@ func detectWorkspaceRoot() error {
 	}
 
 	for {
-		if _, err := os.Stat(filepath.Join(dir, "kamaji.workspace.yaml")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, obj.WorkspaceFile)); err == nil {
 			Config.WorkspaceDir = dir
 			return nil
 		}
 
 		dir = filepath.Dir(dir)
 		if dir == "/" {
-			return fmt.Errorf("kamaji.workspace.yaml file not found")
+			return fmt.Errorf("%s file not found", obj.WorkspaceFile)
 		}
 	}
 }

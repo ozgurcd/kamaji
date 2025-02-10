@@ -1,0 +1,18 @@
+# run_terraform/variables.yaml
+variables:
+  log_verbosity:
+    type: string
+    default: INFO
+  aws_profile:
+    type: string
+    mandatory: true
+  aws_region:
+    type: string
+    mandatory: true
+  terraform_executable:
+    type: string
+    mandatory: true
+  terraform_workspace:
+    type: string
+    mandatory: true
+

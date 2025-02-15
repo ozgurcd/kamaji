@@ -1,0 +1,49 @@
+---
+rules_directory: "//kamaji/rules"
+rules_common_directory: "common"
+workspace_vars:
+   - org_domain: "<DOMAIN_OF_THE_ORGANIZATION>"
+     base_dir: "<TOP_LEVEL_DIRECTORY_OF_THE_ORGANIZATION>"
+third_party:
+  - name: terraform_1_9_0
+    file_path: "terraform"
+    url:
+      darwin_arm64: "https://releases.hashicorp.com/terraform/1.9.0/terraform_1.9.0_darwin_arm64.zip"
+      darwin_amd64: "https://releases.hashicorp.com/terraform/1.9.0/terraform_1.9.0_darwin_amd64.zip"
+      linux_amd64: "https://releases.hashicorp.com/terraform/1.9.0/terraform_1.9.0_linux_amd64.zip"
+    sha256:
+      darwin_arm64: "b7701c42a9b69524cfe79f0928d48ec4d648bc5e08794df12e8b41b56a0a395c"
+      darwin_amd64: "b69196c831d6315b6e79178c96a66365d724cf4b922ad4a9763cd970aeeecd45"
+      linux_amd64: "ab1358e73a81096bbe04201ef403a32e0765c5f6e360692d170d32d0889a4871"
+  - name: terraform_1_10_5
+    file_path: "terraform"
+    url:
+      darwin_arm64: "https://releases.hashicorp.com/terraform/1.10.5/terraform_1.10.5_darwin_arm64.zip"
+      darwin_amd64: "https://releases.hashicorp.com/terraform/1.10.5/terraform_1.10.5_darwin_amd64.zip"
+      linux_amd64: "https://releases.hashicorp.com/terraform/1.10.5/terraform_1.10.5_linux_amd64.zip"
+    sha256:
+      darwin_arm64: "51910553dae21dab7f5f55912129602fd902e68a6b6d84b326a556a3e140b98b"
+      darwin_amd64: "4164db242076c7e99ac6aec67bc42b366925b97267e3883edaca4e4e408b082e"
+      linux_amd64: "0566a24f5332098b15716ebc394be503f4094acba5ba529bf5eb0698ed5e2a90"
+  - name: kubectl_1_32_1
+    file_path: "kubectl"
+    url:
+      darwin_arm64: "https://dl.k8s.io/v1.32.1/bin/darwin/arm64/kubectl"
+      darwin_amd64: "https://dl.k8s.io/v1.32.1/bin/darwin/amd64/kubectl"
+      linux_amd64: "https://dl.k8s.io/v1.32.1/bin/linux/amd64/kubectl"
+    sha256:
+      darwin_arm64: "5b89f9598e2e7da04cc0b5dd6e8daca01d23855fd00c8ea259fd2aab993114db"
+      darwin_amd64: "8bffe90f5a034d392a0ba6fd7ee16c0d40b1dba1ccc4350821102c5d5c56d846"
+      linux_amd64: "e16c80f1a9f94db31063477eb9e61a2e24c1a4eee09ba776b029048f5369db0c"
+  - name: helm_3_17_0
+    file_path: "helm"
+    url:
+      darwin_arm64: "https://get.helm.sh/helm-v3.17.0-darwin-arm64.tar.gz"
+      darwin_amd64: "https://get.helm.sh/helm-v3.17.0-darwin-amd64.tar.gz"
+      linux_amd64: "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz"
+    sha256:
+      darwin_arm64: "5db292c69ba756ddbf139abb623b02860feef15c7f1a4ea69b77715b9165a261"
+      darwin_amd64: "0d5fd51cf51eb4b9712d52ecd8f2a3cd865680595cca57db38ee01802bd466ea"
+      linux_amd64: "fb5d12662fde6eeff36ac4ccacbf3abed96b0ee2de07afdde4edb14e613aee24"
+
+# add kubeseal too

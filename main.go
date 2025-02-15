@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"kamaji/obj"
 	"kamaji/rt"
@@ -11,17 +10,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/spf13/pflag"
 )
 
 func main() {
 	obj.WorkspaceFile = "kamaji.workspace.yaml"
 	rt.Init()
 
-	buildFileName := flag.String("build", "BUILD.yaml", "name of the build file")
-	debugModeFlag := flag.Bool("debug", false, "debug mode")
-	cleanupFlag := flag.Bool("cleanup", false, "cleanup mode")
+	buildFileName := pflag.StringP("build", "b", "BUILD.yaml", "name of the build file")
+	debugModeFlag := pflag.BoolP("debug", "d", false, "debug mode")
+	cleanupFlag := pflag.BoolP("cleanup", "c", false, "cleanup mode")
+	isolatedFlag := pflag.BoolP("isolated", "i", false, "isolated mode")
 
-	flag.Parse()
+	pflag.Parse()
+
+	if *isolatedFlag {
+		rt.Config.Isolated = true
+	}
 
 	if *cleanupFlag {
 		for _, dirName := range []string{"cache", "execroot"} {
@@ -39,7 +45,7 @@ func main() {
 		rt.Config.DebugMode = false
 	}
 
-	targetName := strings.TrimSpace(flag.Arg(0))
+	targetName := strings.TrimSpace(pflag.Arg(0))
 	if targetName == "" {
 		fmt.Printf("Target name is required\n")
 		os.Exit(1)
@@ -80,5 +86,8 @@ func main() {
 	if rt.Config.DebugMode {
 		log.Printf("Cleaning up execroot directory: %s\n", rt.Config.ExecRootDir)
 	}
-	os.RemoveAll(rt.Config.ExecRootDir)
+	err = os.RemoveAll(rt.Config.ExecRootDir)
+	if err != nil {
+		log.Fatalf("Error removing execroot directory: %s\n", err.Error())
+	}
 }

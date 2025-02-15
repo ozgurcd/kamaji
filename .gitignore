@@ -25,3 +25,17 @@ go.work.sum
 .env
 
 kamaji
+
+# Python cache in any directory
+**/__pycache__
+ATTIC.txt
+TODO.txt
+
+# terraform cache in any directory
+**/terraform.tfstate
+**/terraform.tfstate.d
+**/terraform.tfstate.backup
+**/terraform.tfvars
+**/terraform.tfvars.json
+**/terraform.tfvars.json.lock
+**/.terraform*

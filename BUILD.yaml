@@ -4,7 +4,7 @@ targets:
     rule: "run_terraform/run_terraform.py"
     config:
       log_verbosity: "DEBUG"
-      aws_profile: "agni-staging"
+      aws_profile: "aws_ozgur"
       aws_region: "us-west-2"
       terraform_executable: "@@terraform_1_10_5"
       terraform_workspace: "staging"

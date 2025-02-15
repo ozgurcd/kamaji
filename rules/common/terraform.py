@@ -31,9 +31,11 @@ NO_REGION_COMMANDS = [
     "output",
 ]
 
+
 class TerraformRunner:
-    def __init__(self, terraform_path, working_dir, terraform_backend_config, terraform_debug, awsProfile, awsRegion, kubeconfig):        
-        logging.debug("Initializing TerraformRunner")
+    def __init__(self, logger, terraform_path, working_dir, terraform_backend_config, terraform_debug, awsProfile, awsRegion, kubeconfig):        
+        self.logger = logger
+        self.logger.debug("Initializing TerraformRunner")
         self.terraform_path = terraform_path[0]
         self.working_dir = working_dir
         self.tfvarfilepath = ''
@@ -45,46 +47,46 @@ class TerraformRunner:
         self.terraform_debug = terraform_debug
         self.op_envs = [] # needs to be filled by setEnvVariables function
 
-        logging.debug("Setting Terraform Path: %s" % self.terraform_path)
-        logging.debug("Setting Terraform WD: %s" % self.working_dir)
-        logging.debug("Setting Terraform AWS Profile: %s" % self.aws_profile)
-        logging.debug("Setting Terraform AWS Region: %s" % self.aws_region)
-        logging.debug("Setting Terraform terraform_backend_config: %s" % self.terraform_backend_config)
+        self.logger.debug("Setting Terraform Path: %s" % self.terraform_path)
+        self.logger.debug("Setting Terraform WD: %s" % self.working_dir)
+        self.logger.debug("Setting Terraform AWS Profile: %s" % self.aws_profile)
+        self.logger.debug("Setting Terraform AWS Region: %s" % self.aws_region)
+        self.logger.debug("Setting Terraform terraform_backend_config: %s" % self.terraform_backend_config)
 
-    def is_there_any_uncommitted_changes(self):
-        build_workspace_dir = os.getenv("BUILD_WORKSPACE_DIRECTORY")
-        if not build_workspace_dir:
-            print("Error: BUILD_WORKSPACE_DIRECTORY is not set")
-            return False
+    # def is_there_any_uncommitted_changes(self):
+    #     # build_workspace_dir = os.getenv("BUILD_WORKSPACE_DIRECTORY")
+    #     # if not build_workspace_dir:
+    #     #     print("Error: BUILD_WORKSPACE_DIRECTORY is not set")
+    #     #     return False
 
-        result = subprocess.run(["git", "rev-parse", "--show-toplevel"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    #     result = subprocess.run(["git", "rev-parse", "--show-toplevel"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     
-        if result.returncode != 0:
-            print(f"Error finding the top-level Git directory: {result.stderr.decode('utf-8')}")
-            return False
+    #     if result.returncode != 0:
+    #         print(f"Error finding the top-level Git directory: {result.stderr.decode('utf-8')}")
+    #         return False
     
-        env = os.environ.copy()
-        env["GIT_DIR"] = os.path.join(build_workspace_dir, ".git")
-        env["GIT_WORK_TREE"] = build_workspace_dir
+    #     env = os.environ.copy()
+    #     env["GIT_DIR"] = os.path.join(build_workspace_dir, ".git")
+    #     env["GIT_WORK_TREE"] = build_workspace_dir
         
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-            cwd=build_workspace_dir
-        )       
+    #     result = subprocess.run(
+    #         ["git", "status", "--porcelain"],
+    #         stdout=subprocess.PIPE,
+    #         stderr=subprocess.PIPE,
+    #         env=env,
+    #         cwd=build_workspace_dir
+    #     )       
 
-        if result.stderr:
-            print(f"Git error: {result.stderr.decode('utf-8')}")
-            return False 
+    #     if result.stderr:
+    #         print(f"Git error: {result.stderr.decode('utf-8')}")
+    #         return False 
         
-        if result.stdout:
-            logging.debug("There are uncommitted changes in the repository")
-            logging.debug("Uncommitted changes: %s", result.stdout.decode())
-            return True
+    #     if result.stdout:
+    #         self.logger.debug("There are uncommitted changes in the repository")
+    #         self.logger.debug("Uncommitted changes: %s", result.stdout.decode())
+    #         return True
         
-        return False
+    #     return False
 
     def setEnvVariables(self, envs):
         self.op_envs = envs
@@ -102,17 +104,16 @@ class TerraformRunner:
         return self.run("init", iargs)
 
     def init_without_backend(self):
-        logging.debug("Initializing Terraform without backend config")
         return self.run("init", ["-backend=false"])
 
     def init(self):
-        logging.info("Initializing Terraform")
-        logging.debug("Terraform Backend Config: %s" % self.terraform_backend_config)
+        # logging.info("Initializing Terraform")
+        # self.logger.debug("Terraform Backend Config: %s" % self.terraform_backend_config)
         if self.terraform_backend_config:
             be_config = json.loads(self.terraform_backend_config)
-            logging.debug("Backend Config: %s" % be_config)
+            # self.logger.debug("Backend Config: %s" % be_config)
         else:
-            logging.debug("No Backend Config")
+            # self.logger.debug("No Backend Config")
             be_config = "{}"
         
         if be_config != "{}":
@@ -121,14 +122,14 @@ class TerraformRunner:
             self.init_without_backend()
 
     def setRuntimeVarsFile(self, tfvarfilepath):
-        logging.debug("Setting Runtime Vars File: %s" % tfvarfilepath)
+        self.logger.debug("Setting Runtime Vars File: %s" % tfvarfilepath)
         self.tfvarfilepath = tfvarfilepath
 
     def return_to_default_workspace(self):
         self.switch_workspace("default")
 
     def switch_workspace(self, workspace):
-        logging.debug("Switching to workspace: %s", workspace)
+        self.logger.debug("Switching to workspace: %s", workspace)
 
         if not self.run("workspace", ["select", workspace]):
             self.run("workspace", ["new", workspace])
@@ -139,25 +140,25 @@ class TerraformRunner:
             logging.error("AWS Region is not set")
             return False
         
-        logging.debug("Current AWS Region: %s", caws_region)
-        logging.debug("Req Terraform AWS Region: %s", self.aws_region)
+        self.logger.debug("Current AWS Region: %s", caws_region)
+        self.logger.debug("Req Terraform AWS Region: %s", self.aws_region)
 
         if caws_region != self.aws_region:
-            logging.debug("Setting AWS Region to: %s", self.aws_region)
+            self.logger.debug("Setting AWS Region to: %s", self.aws_region)
             os.environ["AWS_REGION"] = self.aws_region
 
-        logging.debug("Executing terraform command: %s", subcmd)
-        logging.debug("Executing terraform args: %s", args)
+        self.logger.debug("Executing terraform command: %s", subcmd)
+        self.logger.debug("Executing terraform args: %s", args)
 
         spcmd = [self.terraform_path, subcmd]
-        logging.debug("spcmd: %s", spcmd)
+        self.logger.debug("spcmd: %s", spcmd)
 
         if subcmd not in NO_REGION_COMMANDS:
             spcmd.append("-var=aws_region=%s" % self.aws_region)
-        logging.debug("spcmd: %s", spcmd)
+        self.logger.debug("spcmd: %s", spcmd)
 
         if subcmd not in NO_INPUT_COMMANDS:
-            logging.debug("%s command detected, adding -input=false", subcmd)
+            self.logger.debug("%s command detected, adding -input=false", subcmd)
             spcmd.append("-input=false")
 
         if subcmd not in NO_ARG_COMMANDS and self.tfvarfilepath:
@@ -182,9 +183,9 @@ class TerraformRunner:
         if self.aws_region:
             envs['AWS_REGION'] = self.aws_region
 
-        logging.debug("Executing command in : %s", self.working_dir)
-        logging.debug("Executing Terraform with env variables: %s", envs)
-        logging.debug("Executing command: %s", spcmd)
+        self.logger.debug("Executing command in : %s", self.working_dir)
+        self.logger.debug("Executing Terraform with env variables: %s", envs)
+        self.logger.debug("Executing command: %s", spcmd)
         try:
             proc = subprocess.Popen(
                 spcmd,
@@ -196,7 +197,7 @@ class TerraformRunner:
             _, stderr = proc.communicate()
 
             if self.terraform_debug == "true":
-                logging.debug("Terraform stderr: %s", stderr.decode())
+                self.logger.debug("Terraform stderr: %s", stderr.decode())
             
             if proc.returncode != 0:
                 error_message = stderr.decode()
@@ -209,6 +210,6 @@ class TerraformRunner:
             pass
         finally:
             if caws_region != self.aws_region:
-                logging.debug("Unsetting AWS_REGION")
+                self.logger.debug("Unsetting AWS_REGION")
                 if 'AWS_REGION' in os.environ:
                     del os.environ['AWS_REGION']

@@ -3,6 +3,7 @@ package rt
 import (
 	"fmt"
 	"kamaji/obj"
+	"log"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -72,6 +73,9 @@ func Init() {
 	Config.WorkspaceConfig = workspaceConfig
 	Config.CacheDir = initCacheDir()
 	Config.Platform = runtime.GOOS + "_" + runtime.GOARCH
+
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 }
 
 func initCacheDir() string {

@@ -9,6 +9,7 @@ type RuntimeConfig struct {
 	CacheDir             string
 	Platform             string
 	TmpDir               string
+	Isolated             bool
 	ExecRootDir          string
 	ThirdPartyFiles      map[string]ThirdPartyFileInfo
 	ThirdPartyFinalPaths map[string]string

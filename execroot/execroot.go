@@ -186,9 +186,5 @@ func CopyThirdPartyIntoExecRootDir() error {
 		rt.Config.ThirdPartyFinalPaths[fileName] = targetFullPath
 	}
 
-	if rt.Config.DebugMode {
-		log.Printf("Third party final paths: %v\n", rt.Config.ThirdPartyFinalPaths)
-	}
-
 	return nil
 }

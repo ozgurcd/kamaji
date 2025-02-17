@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-func prepareCmdline(target obj.ExecTarget) (string, error) {
+func prepareCmdline(python_executable string, target obj.ExecTarget) (string, error) {
 	convertToJSON := func(value any) (string, error) {
 		switch v := value.(type) {
 		case map[any]any:
@@ -46,7 +46,7 @@ func prepareCmdline(target obj.ExecTarget) (string, error) {
 		}
 	}
 
-	cmdline := fmt.Sprintf("python3 %s/%s", rt.Config.WorkspaceConfig.RulesDir, target.Rule)
+	cmdline := fmt.Sprintf("%s %s/%s", python_executable, rt.Config.WorkspaceConfig.RulesDir, target.Rule)
 	for k, v := range target.Config {
 		jsonValue, err := convertToJSON(v)
 		if err != nil {
@@ -59,10 +59,26 @@ func prepareCmdline(target obj.ExecTarget) (string, error) {
 }
 
 func Run(workspaceConfig obj.WorkspaceConfig, target obj.ExecTarget, pythonArgs ...string) error {
+	// Use the Python interpreter provided via CLI if available; otherwise, look it up.
+	python_executable := rt.Config.PythonInterpreter
+	var err error
+	if python_executable == "" {
+		python_executable, err = exec.LookPath("python")
+		if err != nil {
+			if rt.Config.DebugMode {
+				log.Printf("python not found in path: %v\n", err)
+			}
+			return errors.New("python not found in path")
+		}
+	}
+	if rt.Config.DebugMode {
+		log.Printf("Using python interpreter: %s\n", python_executable)
+	}
+
 	if rt.Config.DebugMode {
 		log.Printf("Creating execroot dir: %s\n", rt.Config.ExecRootDir)
 	}
-	err := execroot.CreateExecRootDir(target)
+	err = execroot.CreateExecRootDir(target)
 	if err != nil {
 		return err
 	}
@@ -125,7 +141,7 @@ func Run(workspaceConfig obj.WorkspaceConfig, target obj.ExecTarget, pythonArgs 
 	if rt.Config.DebugMode {
 		log.Printf("Preparing cmdline for target: %s\n", target.Name)
 	}
-	cmdline, err := prepareCmdline(target)
+	cmdline, err := prepareCmdline(python_executable, target)
 	if err != nil {
 		return err
 	}

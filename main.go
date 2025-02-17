@@ -22,8 +22,11 @@ func main() {
 	debugModeFlag := pflag.BoolP("debug", "d", false, "debug mode")
 	cleanupFlag := pflag.BoolP("cleanup", "c", false, "cleanup mode")
 	isolatedFlag := pflag.BoolP("isolated", "i", false, "isolated mode")
+	pythonInterpreterFlag := pflag.StringP("python", "p", "", "Path to python interpreter")
 
 	pflag.Parse()
+
+	rt.Config.PythonInterpreter = *pythonInterpreterFlag
 
 	if *isolatedFlag {
 		rt.Config.Isolated = true

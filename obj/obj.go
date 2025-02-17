@@ -13,8 +13,8 @@ type RuntimeConfig struct {
 	ExecRootDir          string
 	ThirdPartyFiles      map[string]ThirdPartyFileInfo
 	ThirdPartyFinalPaths map[string]string
-	//RuleDir              string
-	RuleFile string
+	RuleFile             string
+	PythonInterpreter    string
 }
 
 type WorkspaceConfig struct {

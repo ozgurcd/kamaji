@@ -10,9 +10,6 @@ import sys
 import os
 import subprocess
 
-#from .. import TerraformRunner
-
-
 NO_INIT_COMMANDS=[
     "fmt", 
     "validate", 
@@ -48,7 +45,6 @@ def _main() -> None:
     parser.add_argument('--log_verbosity')
     parser.add_argument('--aws_profile')
     parser.add_argument('--kubeconfig')
-    parser.add_argument('--op_tfvars_file')
     parser.add_argument('--runtime_vars_file')
     parser.add_argument('--terraform_workspace')
     parser.add_argument('--terraform_backend_config')
@@ -84,7 +80,6 @@ def _main() -> None:
     logger.debug("terraform_workspace: %s " % flags.terraform_workspace)
     logger.debug("We got aws profile: %s " % flags.aws_profile)
     logger.debug("We got terraform exec: %s " % flags.terraform_executable)
-    logger.debug("We got op_tfvars_file: %s " % flags.op_tfvars_file)
     logger.debug("We got aws region: %s " % flags.aws_region)
     logger.debug("Terraform debug: %s " % flags.terraform_debug)
 
@@ -130,19 +125,6 @@ def _main() -> None:
 
     tr.switch_workspace(flags.terraform_workspace)
 
-    if flags.op_tfvars_file:
-        from one_password import OnePasswordRunner
-        o = OnePasswordRunner(
-            flags.terraform_workspace, 
-            flags.op_tfvars_file.strip(),
-            ORG_DOMAIN
-        )
-        
-        if o.shouldUseOP():
-            logger.debug("Using 1Password")
-            op_envs = o.getEnvVariables()
-            tr.setEnvVariables(op_envs)
-    
     if flags.runtime_vars_file:
         tr.setRuntimeVarsFile(runtimevarsfilepath)
 

@@ -45,48 +45,13 @@ class TerraformRunner:
         self.current_workspace = ""
         self.terraform_backend_config = terraform_backend_config
         self.terraform_debug = terraform_debug
-        self.op_envs = [] # needs to be filled by setEnvVariables function
+        self.op_envs = [] 
 
         self.logger.debug("Setting Terraform Path: %s" % self.terraform_path)
         self.logger.debug("Setting Terraform WD: %s" % self.working_dir)
         self.logger.debug("Setting Terraform AWS Profile: %s" % self.aws_profile)
         self.logger.debug("Setting Terraform AWS Region: %s" % self.aws_region)
         self.logger.debug("Setting Terraform terraform_backend_config: %s" % self.terraform_backend_config)
-
-    # def is_there_any_uncommitted_changes(self):
-    #     # build_workspace_dir = os.getenv("BUILD_WORKSPACE_DIRECTORY")
-    #     # if not build_workspace_dir:
-    #     #     print("Error: BUILD_WORKSPACE_DIRECTORY is not set")
-    #     #     return False
-
-    #     result = subprocess.run(["git", "rev-parse", "--show-toplevel"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    
-    #     if result.returncode != 0:
-    #         print(f"Error finding the top-level Git directory: {result.stderr.decode('utf-8')}")
-    #         return False
-    
-    #     env = os.environ.copy()
-    #     env["GIT_DIR"] = os.path.join(build_workspace_dir, ".git")
-    #     env["GIT_WORK_TREE"] = build_workspace_dir
-        
-    #     result = subprocess.run(
-    #         ["git", "status", "--porcelain"],
-    #         stdout=subprocess.PIPE,
-    #         stderr=subprocess.PIPE,
-    #         env=env,
-    #         cwd=build_workspace_dir
-    #     )       
-
-    #     if result.stderr:
-    #         print(f"Git error: {result.stderr.decode('utf-8')}")
-    #         return False 
-        
-    #     if result.stdout:
-    #         self.logger.debug("There are uncommitted changes in the repository")
-    #         self.logger.debug("Uncommitted changes: %s", result.stdout.decode())
-    #         return True
-        
-    #     return False
 
     def setEnvVariables(self, envs):
         self.op_envs = envs
@@ -107,13 +72,9 @@ class TerraformRunner:
         return self.run("init", ["-backend=false"])
 
     def init(self):
-        # logging.info("Initializing Terraform")
-        # self.logger.debug("Terraform Backend Config: %s" % self.terraform_backend_config)
         if self.terraform_backend_config:
             be_config = json.loads(self.terraform_backend_config)
-            # self.logger.debug("Backend Config: %s" % be_config)
         else:
-            # self.logger.debug("No Backend Config")
             be_config = "{}"
         
         if be_config != "{}":
@@ -166,19 +127,15 @@ class TerraformRunner:
 
         spcmd.extend(args)
 
-        orig_envs = os.environ.copy()
-
         envs = {}
-        #envs['PATH'] = orig_envs['PATH']
-        # set the environment variables from 1Password
         if len(self.op_envs) > 0:
             for key, value in self.op_envs.items():
                 if value is not None:  # Ensure value is not None
                     envs[key] = value
 
-        envs['AWS_PROFILE'] = self.aws_profile or ""  # Ensure default empty string
-        envs['KUBECONFIG'] = self.kubeconfig or ""    # Ensure default empty string
-        envs['KUBE_CONFIG_PATH'] = self.kubeconfig or ""  # Ensure default empty string
+        envs['AWS_PROFILE'] = self.aws_profile or "" 
+        envs['KUBECONFIG'] = self.kubeconfig or ""   
+        envs['KUBE_CONFIG_PATH'] = self.kubeconfig or ""
 
         if self.aws_region:
             envs['AWS_REGION'] = self.aws_region

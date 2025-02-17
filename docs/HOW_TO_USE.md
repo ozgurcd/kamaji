@@ -1,15 +1,15 @@
 # Getting Started with Kamaji
 
-This guide helps you set up Kamaji for Terraform targets, explaining key configuration files and how to create new custom rules.
+This guide explains how to set up Kamaji for Terraform targets, covering key configuration files and instructions on creating custom rules.
 
 ---
 
 ## 1. `kamaji.workspace.yaml`
 
-This file describes your global workspace config including:
-- Where your rules are stored (`rules_directory`)
-- Shared variables (`workspace_vars`) for all targets, if you need to pass variables to the targets.
-- References to third-party dependencies like Terraform or kubectl. Please note that kamaji won't use the tools installed on your OS. Instead, it will download the necessary tools from the URLs provided in the `third_party` section and verify the SHA256 checksum. That way you can have the same version of tools across different machines without having to install them manually. Also, this approach you to guarantee of the integrity and authenticity of the tools.
+This file describes your global workspace configuration, including:
+- **rules_directory**: The location where your rules are stored.
+- **workspace_vars**: Shared variables for all targets (useful for passing variables to targets).
+- **third_party**: References to third-party dependencies such as Terraform or kubectl. Please note that Kamaji won't use the tools installed on your OS. Instead, it downloads the necessary tools from the URLs provided in the `third_party` section and verifies their SHA256 checksums. This approach ensures that you have the same version of tools across different machines while also guaranteeing their integrity and authenticity.
 
 **Example**:
 ```yaml
@@ -23,7 +23,7 @@ third_party:
     ...
 ```
 
-Place this file at your workspace root, aka the top level directory that kamaji can access. Once you define a third party tool, you can use it in your targets by referencing its name following the `@@` syntax.
+Place this file in your workspace root (the top-level directory that Kamaji can access). Once you define a third-party tool, you can reference its name in your targets using the `@@` syntax. Please note that Kamaji will attempt to download the version that matches the OS and architecture of the machine on which it is running.
 
 **Example**:
 ```yaml
@@ -38,7 +38,7 @@ targets:
 
 ## 2. `BUILD.yaml` for Terraform
 
-Within a Terraform directory, create a `BUILD.yaml` defining the targets (such as “staging”, “production”):
+Within a Terraform directory, create a `BUILD.yaml` file that defines the targets (such as "staging" or "production"):
 ```yaml
 ---
 targets:
@@ -50,29 +50,29 @@ targets:
       ...
 ```
 - **rule**: Points to the Python script that handles Terraform tasks (`run_terraform.py`).
-- **config**: Provides any needed parameters (e.g., which Terraform version to use, region, workspace name, etc.). Definition of this config is up to the Python script and defined in the rule directory, in variables.yaml file.
+- **config**: Provides any necessary parameters (e.g., which Terraform version to use, region, workspace name, etc.). The definition of this configuration is determined by the Python script and is specified in the rule directory's `variables.yaml` file.
 
-This config is passed to the Python script as a dictionary. If the given config does not match the expected config, the Python script will raise an error.
+This configuration is passed to the Python script as a dictionary. If the provided configuration does not match the expected format, the Python script will raise an error.
 
 ---
 
 ## 3. Rules Directory Overview
 
-Kamaji looks in the `rules` directory for Python scripts to execute. Example structure:
+Kamaji searches the `rules` directory for Python scripts to execute. An example structure:
 ```
 ├─ rules
 │   └─ run_terraform
-│       └─ run_terraform.py
+│       ├─ run_terraform.py
 │       └─ variables.yaml
 ├─ common
 │   └─ terraform.py
 ```
 
 - **run_terraform.py**: The entry script run by Kamaji. It typically imports shared logic from `terraform.py`.
-- **terraform.py**: A helper module (in `common`) that manages command construction, environment setup, etc.
-- **variables.yaml**: A file that defines the expected config for the rule. It also includes the default values for the config.
+- **terraform.py**: A helper module (located in the `common` directory) that manages command construction, environment setup, etc.
+- **variables.yaml**: A file that defines the expected configuration for the rule, including default values.
 
-There is also a "common" directory that contains shared logic for all rules. Since there is a file in common directory with the name "terraform.py" which defines the shared logic for all terraform rules when Kamaji runs a target referencing `run_terraform/run_terraform.py`, it loads `terraform.py` internally to handle Terraform CLI commands.
+In addition, there is a `common` directory that contains shared logic for all rules. When Kamaji runs a target referencing `run_terraform/run_terraform.py`, it automatically loads the `terraform.py` file from the `common` directory to handle Terraform CLI commands.
 
 ---
 
@@ -96,9 +96,9 @@ if __name__ == "__main__":
 ```python
 # terraform.py
 def run_terraform(args):
-    # build a Terraform command and run it
+    # Build a Terraform command and run it
     cmd = ["terraform"] + args
-    # add any logic or environment variables needed...
+    # Add any additional logic or environment variables as needed...
 ```
 
 ---
@@ -106,8 +106,8 @@ def run_terraform(args):
 ## 5. Creating New Rules
 
 To add a new rule:
-1. Create a new directory under `rules` with a Python file (e.g., `rules/new_rule/my_rule.py`).
-2. Write a `main()` function that uses your shared logic from `common`, or from libraries you install.
+1. Create a new directory under `rules` containing a Python file (e.g., `rules/new_rule/my_rule.py`).
+2. Write a `main()` function that utilizes the shared logic available in the `common` directory or from other installed libraries.
 3. In your `BUILD.yaml`, reference `"new_rule/my_rule.py"` under `rule`.
 
 Example minimal new rule:
@@ -134,9 +134,11 @@ You can now run:
 kamaji my_custom_target
 ```
 
-## 6. // notation
+---
 
-The `//` notation is used to reference the root of the workspace. It is equivalent to the workspace root directory, aka the directory where the `kamaji.workspace.yaml` file is located.
+## 6. `//` Notation
+
+The `//` notation is used to reference the root of the workspace. It is equivalent to the workspace root directory, i.e., the directory where the `kamaji.workspace.yaml` file is located.
 
 **Example**:
 ```yaml
@@ -146,5 +148,6 @@ targets:
     rule: "//rules/new_rule/my_rule.py"
     config:
       some_key: "some_value"
---- 
+---
+```
 

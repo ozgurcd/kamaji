@@ -5,20 +5,10 @@ Terraform Runner Template
 
 import logging
 import argparse
-import json
 import sys
 import os
-import subprocess
 
-NO_INIT_COMMANDS=[
-    "fmt", 
-    "validate", 
-    "force-unlock", 
-    "taint", 
-    "untaint", 
-    "show",
-    "version"
-]
+from terraform import NO_INIT_COMMANDS
 
 logger = logging.getLogger(__name__)
 

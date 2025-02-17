@@ -4,6 +4,16 @@ import subprocess
 import sys
 import json
 
+NO_INIT_COMMANDS=[
+    "fmt", 
+    "validate", 
+    "force-unlock", 
+    "taint", 
+    "untaint", 
+    "show",
+    "version"
+]
+
 NO_ARG_COMMANDS = [
     "fmt",
     "version",

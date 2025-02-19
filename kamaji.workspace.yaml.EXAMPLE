@@ -1,5 +1,5 @@
 ---
-rules_directory: "//kamaji/rules"
+rules_directory: "//rules"
 rules_common_directory: "common"
 workspace_vars:
    - org_domain: "<DOMAIN_OF_THE_ORGANIZATION>"

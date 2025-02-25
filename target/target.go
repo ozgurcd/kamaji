@@ -39,7 +39,7 @@ func ParseBuildFile(buildFileName string, targetName string) (obj.ExecTarget, er
 	return obj.ExecTarget{}, fmt.Errorf("target %s not found", targetName)
 }
 
-// loadExpectedVariables is a private helper that reads the variables.yaml file
+// loadExpectedVariables is a private helper that reads the rule_definition.yaml file
 // and returns the contents of its "variables" section as a map.
 func loadExpectedVariables(filePath string) (map[string]any, error) {
 	data, err := os.ReadFile(filePath)
@@ -82,8 +82,8 @@ func loadExpectedVariables(filePath string) (map[string]any, error) {
 }
 
 func ValidateTargetVariables(target map[string]any) {
-	variablesFile := filepath.Join(rt.Config.WorkspaceConfig.RulesDir, filepath.Dir(rt.Config.ExecTarget.Rule), "variables.yaml")
-	expectedTypes, err := loadExpectedVariables(variablesFile)
+	definitionFile := filepath.Join(rt.Config.WorkspaceConfig.RulesDir, filepath.Dir(rt.Config.ExecTarget.Rule), "rule_definition.yaml")
+	expectedTypes, err := loadExpectedVariables(definitionFile)
 	if err != nil {
 		log.Printf("No variables file found for rule %s\n", filepath.Base(rt.Config.ExecTarget.Rule))
 		os.Exit(1)

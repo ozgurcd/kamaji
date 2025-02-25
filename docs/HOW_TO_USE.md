@@ -14,7 +14,7 @@ This file describes your global workspace configuration, including:
 **Example**:
 ```yaml
 ---
-rules_directory: "//kamaji/rules"
+rules_directory: "//rules"
 workspace_vars:
   - org_domain: "example.com"
     base_dir: "/projects/infra"
@@ -50,7 +50,7 @@ targets:
       ...
 ```
 - **rule**: Points to the Python script that handles Terraform tasks (`run_terraform.py`).
-- **config**: Provides any necessary parameters (e.g., which Terraform version to use, region, workspace name, etc.). The definition of this configuration is determined by the Python script and is specified in the rule directory's `variables.yaml` file.
+- **config**: Provides any necessary parameters (e.g., which Terraform version to use, region, workspace name, etc.). The definition of this configuration is determined by the Python script and is specified in the rule directory's `rule_definition.yaml` file.
 
 This configuration is passed to the Python script as a dictionary. If the provided configuration does not match the expected format, the Python script will raise an error.
 
@@ -63,14 +63,14 @@ Kamaji searches the `rules` directory for Python scripts to execute. An example 
 ├─ rules
 │   └─ run_terraform
 │       ├─ run_terraform.py
-│       └─ variables.yaml
+│       └─ rule_definition.yaml
 ├─ common
 │   └─ terraform.py
 ```
 
 - **run_terraform.py**: The entry script run by Kamaji. It typically imports shared logic from `terraform.py`.
 - **terraform.py**: A helper module (located in the `common` directory) that manages command construction, environment setup, etc.
-- **variables.yaml**: A file that defines the expected configuration for the rule, including default values.
+- **rule_definition.yaml**: A file that defines the expected configuration for the rule, including default values.
 
 In addition, there is a `common` directory that contains shared logic for all rules. When Kamaji runs a target referencing `run_terraform/run_terraform.py`, it automatically loads the `terraform.py` file from the `common` directory to handle Terraform CLI commands.
 

@@ -1,4 +1,5 @@
-# run_terraform/variables.yaml
+# run_terraform/rule_definition.yaml
+language: python
 variables:
   log_verbosity:
     type: string

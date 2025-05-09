@@ -30,6 +30,7 @@ kamaji
 **/__pycache__
 ATTIC.txt
 TODO.txt
+Plan.txt
 
 # terraform cache in any directory
 **/terraform.tfstate

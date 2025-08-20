@@ -1,0 +1,3 @@
+# Common dependencies for Kamaji rule extensions
+pyyaml>=6.0
+jinja2>=3.0

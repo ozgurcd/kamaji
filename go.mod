@@ -1,6 +1,6 @@
 module kamaji
 
-go 1.24
+go 1.25
 
 require (
 	github.com/h2non/filetype v1.1.3

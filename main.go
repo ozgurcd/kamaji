@@ -112,16 +112,18 @@ func setupPythonEnv() error {
 
 	fmt.Println("Setting up Python virtual environment...")
 
-	if _, err := os.Stat(filepath.Join(venvDir, "bin", "activate")); os.IsNotExist(err) {
-		cmd := exec.Command(python, "-m", "venv", venvDir)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		fmt.Printf("Creating virtualenv in %s\n", venvDir)
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to create virtualenv: %w", err)
-		}
-	} else {
-		fmt.Println("Virtual environment already exists.")
+	activatePath := filepath.Join(venvDir, "bin", "activate")
+	if _, err := os.Stat(activatePath); err == nil {
+		fmt.Println("Virtual environment already exists. Skipping setup.")
+		return nil
+	}
+
+	fmt.Printf("Creating virtualenv in %s\n", venvDir)
+	cmd := exec.Command(python, "-m", "venv", venvDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create virtualenv: %w", err)
 	}
 
 	pythonPath := filepath.Join(venvDir, "bin", "python")

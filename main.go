@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"kamaji/obj"
 	"kamaji/rt"
 	"kamaji/runner"
 	"kamaji/target"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -24,16 +24,25 @@ func main() {
 	cleanupFlag := pflag.BoolP("cleanup", "c", false, "cleanup mode")
 	isolatedFlag := pflag.BoolP("isolated", "i", false, "isolated mode")
 	pythonInterpreterFlag := pflag.StringP("python", "p", "", "Path to python interpreter")
-	setupPythonEnvFlag := pflag.Bool("setup-python-env", false, "Set up Python virtual environment for extensions")
+	initRulesFlag := pflag.Bool("init-rules", false, "Copy built-in rules to /usr/local/share/kamaji/rules")
+	setupPythonEnvFlag := pflag.Bool("setup-python-env", false, "Set up Python virtual environment for Kamaji extensions")
 
 	pflag.Parse()
 
-	// Python venv setup mode (standalone)
 	if *setupPythonEnvFlag {
-		if err := setupPythonEnv(); err != nil {
+		err := rt.SetupPythonEnv()
+		if err != nil {
 			log.Fatalf("Failed to set up Python environment: %v\n", err)
 		}
-		fmt.Println("Python environment setup complete.")
+		os.Exit(0)
+	}
+
+	if *initRulesFlag {
+		err := copyRulesToGlobalDir()
+		if err != nil {
+			log.Fatalf("Failed to initialize rules: %v\n", err)
+		}
+		fmt.Println("Rules copied to /usr/local/share/kamaji/rules successfully.")
 		os.Exit(0)
 	}
 
@@ -53,11 +62,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *debugModeFlag {
-		rt.Config.DebugMode = true
-	} else {
-		rt.Config.DebugMode = false
-	}
+	rt.Config.DebugMode = *debugModeFlag
 
 	targetName := strings.TrimSpace(pflag.Arg(0))
 	if targetName == "" {
@@ -106,55 +111,79 @@ func main() {
 	}
 }
 
-func setupPythonEnv() error {
-	venvDir := ".venv"
-	python := "python3"
+func copyRulesToGlobalDir() error {
+	srcRulesDir := "rules"
+	dstBaseDir := "/usr/local/share/kamaji"
+	dstRulesDir := filepath.Join(dstBaseDir, "rules")
+	reqFileSrc := "requirements.txt"
+	reqFileDst := filepath.Join(dstBaseDir, "requirements.txt")
 
-	fmt.Println("Setting up Python virtual environment...")
-
-	activatePath := filepath.Join(venvDir, "bin", "activate")
-	if _, err := os.Stat(activatePath); err == nil {
-		fmt.Println("Virtual environment already exists. Skipping setup.")
-		return nil
+	// Ensure destination base directory exists
+	if err := os.MkdirAll(dstBaseDir, 0755); err != nil {
+		return fmt.Errorf("failed to create destination base directory: %w", err)
 	}
 
-	fmt.Printf("Creating virtualenv in %s\n", venvDir)
-	cmd := exec.Command(python, "-m", "venv", venvDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create virtualenv: %w", err)
+	// Copy rules directory
+	if _, err := os.Stat(srcRulesDir); os.IsNotExist(err) {
+		return fmt.Errorf("rules directory not found at %s", srcRulesDir)
 	}
 
-	pythonPath := filepath.Join(venvDir, "bin", "python")
-	if _, err := os.Stat(pythonPath); err != nil {
-		return fmt.Errorf("python not found in virtualenv: %w", err)
+	// Clear existing rules directory
+	if err := os.RemoveAll(dstRulesDir); err != nil {
+		return fmt.Errorf("failed to clear existing rules directory: %w", err)
 	}
 
-	var reqFiles []string
-	if _, err := os.Stat("requirements.txt"); err == nil {
-		reqFiles = append(reqFiles, "requirements.txt")
-	}
-
-	_ = filepath.Walk("rules", func(path string, info os.FileInfo, err error) error {
-		if info != nil && info.Name() == "requirements.txt" {
-			reqFiles = append(reqFiles, path)
+	err := filepath.Walk(srcRulesDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
 		}
-		return nil
-	})
 
-	if len(reqFiles) == 0 {
-		fmt.Println("No Python dependencies found.")
-		return nil
+		relPath, err := filepath.Rel(srcRulesDir, path)
+		if err != nil {
+			return err
+		}
+
+		destPath := filepath.Join(dstRulesDir, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(destPath, 0755)
+		}
+
+		srcFile, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer srcFile.Close()
+
+		destFile, err := os.Create(destPath)
+		if err != nil {
+			return err
+		}
+		defer destFile.Close()
+
+		_, err = io.Copy(destFile, srcFile)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("failed to copy rules: %w", err)
 	}
 
-	for _, file := range reqFiles {
-		fmt.Printf("Installing requirements from %s\n", file)
-		cmd := exec.Command(pythonPath, "-m", "pip", "install", "-r", file)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("pip install failed for %s: %w", file, err)
+	// Optionally copy requirements.txt
+	if _, err := os.Stat(reqFileSrc); err == nil {
+		srcFile, err := os.Open(reqFileSrc)
+		if err != nil {
+			return fmt.Errorf("failed to open %s: %w", reqFileSrc, err)
+		}
+		defer srcFile.Close()
+
+		dstFile, err := os.Create(reqFileDst)
+		if err != nil {
+			return fmt.Errorf("failed to create %s: %w", reqFileDst, err)
+		}
+		defer dstFile.Close()
+
+		if _, err := io.Copy(dstFile, srcFile); err != nil {
+			return fmt.Errorf("failed to copy requirements.txt: %w", err)
 		}
 	}
 

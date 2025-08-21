@@ -31,6 +31,9 @@ func readWorkspaceConfig() (obj.WorkspaceConfig, error) {
 	// if the rules dir starts with a //, replace it with the workspace root
 	if strings.HasPrefix(workspaceConfig.RulesDir, "//") {
 		workspaceConfig.RulesDir = filepath.Join(Config.WorkspaceDir, workspaceConfig.RulesDir[2:])
+	} else if strings.TrimSpace(workspaceConfig.RulesDir) == "" {
+		// fallback to global rules directory
+		workspaceConfig.RulesDir = "/usr/local/share/kamaji/rules"
 	}
 
 	return workspaceConfig, nil
@@ -58,6 +61,7 @@ func detectWorkspaceRoot() error {
 func Init() {
 	Config.ThirdPartyFiles = make(map[string]obj.ThirdPartyFileInfo)
 	Config.ThirdPartyFinalPaths = make(map[string]string)
+
 	err := detectWorkspaceRoot()
 	if err != nil {
 		fmt.Printf("Error detecting workspace root: %v\n", err)
@@ -75,7 +79,6 @@ func Init() {
 	Config.Platform = runtime.GOOS + "_" + runtime.GOARCH
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
 }
 
 func initCacheDir() string {

@@ -15,50 +15,86 @@ import (
 
 var Config obj.RuntimeConfig
 
-func readWorkspaceConfig() (obj.WorkspaceConfig, error) {
+func readWorkspaceConfig(rulesDirOverride string) (obj.WorkspaceConfig, error) {
 	workspaceConfig := obj.WorkspaceConfig{}
 
-	workspaceFile, err := os.Open(filepath.Join(Config.WorkspaceDir, obj.WorkspaceFile))
-	if err != nil {
-		return workspaceConfig, err
+	workspaceFilePath := filepath.Join(Config.WorkspaceDir, obj.WorkspaceFile)
+	if _, err := os.Stat(workspaceFilePath); err == nil {
+		f, err := os.Open(workspaceFilePath)
+		if err != nil {
+			return workspaceConfig, err
+		}
+		defer f.Close()
+
+		err = yaml.NewDecoder(f).Decode(&workspaceConfig)
+		if err != nil {
+			return workspaceConfig, err
+		}
 	}
 
-	err = yaml.NewDecoder(workspaceFile).Decode(&workspaceConfig)
-	if err != nil {
-		return workspaceConfig, err
-	}
-
-	// if the rules dir starts with a //, replace it with the workspace root
-	if strings.HasPrefix(workspaceConfig.RulesDir, "//") {
+	// Determine RulesDir with proper priority
+	if rulesDirOverride != "" {
+		workspaceConfig.RulesDir = rulesDirOverride
+	} else if strings.HasPrefix(workspaceConfig.RulesDir, "//") {
 		workspaceConfig.RulesDir = filepath.Join(Config.WorkspaceDir, workspaceConfig.RulesDir[2:])
 	} else if strings.TrimSpace(workspaceConfig.RulesDir) == "" {
-		// fallback to global rules directory
 		workspaceConfig.RulesDir = "/usr/local/share/kamaji/rules"
 	}
 
+	if Config.DebugMode {
+		log.Printf("Resolved rules directory: %s\n", workspaceConfig.RulesDir)
+	}
 	return workspaceConfig, nil
 }
 
+// func detectWorkspaceRoot() error {
+// 	dir, err := os.Getwd()
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	for {
+// 		if _, err := os.Stat(filepath.Join(dir, obj.WorkspaceFile)); err == nil {
+// 			Config.WorkspaceDir = dir
+// 			return nil
+// 		}
+
+// 		dir = filepath.Dir(dir)
+// 		if dir == "/" {
+// 			return fmt.Errorf("%s file not found", obj.WorkspaceFile)
+// 		}
+// 	}
+// }
+
 func detectWorkspaceRoot() error {
-	dir, err := os.Getwd()
+	startDir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 
+	dir := startDir
 	for {
-		if _, err := os.Stat(filepath.Join(dir, obj.WorkspaceFile)); err == nil {
+		if isWorkspaceRoot(dir) {
 			Config.WorkspaceDir = dir
 			return nil
 		}
 
-		dir = filepath.Dir(dir)
-		if dir == "/" {
-			return fmt.Errorf("%s file not found", obj.WorkspaceFile)
+		parent := filepath.Dir(dir)
+		if parent == dir { // reached root
+			break
 		}
+		dir = parent
 	}
+
+	return fmt.Errorf("%s file not found starting from %s", obj.WorkspaceFile, startDir)
 }
 
-func Init() {
+func isWorkspaceRoot(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, obj.WorkspaceFile))
+	return err == nil
+}
+
+func InitRuntime(rulesDirOverride string) {
 	Config.ThirdPartyFiles = make(map[string]obj.ThirdPartyFileInfo)
 	Config.ThirdPartyFinalPaths = make(map[string]string)
 
@@ -68,7 +104,7 @@ func Init() {
 		os.Exit(1)
 	}
 
-	workspaceConfig, err := readWorkspaceConfig()
+	workspaceConfig, err := readWorkspaceConfig(rulesDirOverride)
 	if err != nil {
 		fmt.Printf("Error reading workspace file: %v\n", err)
 		os.Exit(1)
@@ -82,41 +118,55 @@ func Init() {
 }
 
 func initCacheDir() string {
-	user, err := user.Current()
-	if err != nil {
-		fmt.Printf("Cannot determine current user, exiting\n")
-		os.Exit(1)
+	var tmpDir string
+
+	// Use the test's temporary directory if set
+	if Config.TmpDir != "" {
+		tmpDir = Config.TmpDir
+	} else {
+		// Determine the system-wide temporary directory
+		user, err := user.Current()
+		if err != nil {
+			fmt.Printf("Cannot determine current user, exiting\n")
+			os.Exit(1)
+		}
+
+		tmpDir = map[string]string{
+			"darwin": fmt.Sprintf("/var/tmp/_kamaji_%s", user.Username),
+			"linux":  fmt.Sprintf("/tmp/_kamaji_%s", user.Username),
+		}[runtime.GOOS]
+
+		if tmpDir == "" {
+			fmt.Printf("Unsupported OS: %s\n", runtime.GOOS)
+			os.Exit(1)
+		}
+
+		Config.TmpDir = tmpDir
 	}
 
-	tmpDir := map[string]string{
-		"darwin": fmt.Sprintf("/var/tmp/_kamaji_%s", user.Username),
-		"linux":  fmt.Sprintf("/tmp/_kamaji_%s", user.Username),
-	}[runtime.GOOS]
+	fmt.Printf("Attempting to create tmp dir: %s\n", tmpDir)
 
-	if tmpDir == "" {
-		fmt.Printf("Unsupported OS: %s\n", runtime.GOOS)
-		os.Exit(1)
-	}
-
-	Config.TmpDir = tmpDir
-
-	err = os.MkdirAll(tmpDir, 0755)
+	err := os.MkdirAll(tmpDir, 0755)
 	if err != nil {
-		fmt.Printf("Cannot create tmp dir: %s\n", err.Error())
+		fmt.Printf("Error creating tmp dir: %s\n", err.Error())
 		os.Exit(1)
 	}
 
 	cacheDir := filepath.Join(tmpDir, "cache")
+	fmt.Printf("Attempting to create cache dir: %s\n", cacheDir)
+
 	err = os.MkdirAll(cacheDir, 0755)
 	if err != nil {
-		fmt.Printf("Cannot create cache dir: %s\n", err.Error())
+		fmt.Printf("Error creating cache dir: %s\n", err.Error())
 		os.Exit(1)
 	}
 
 	shaDir := filepath.Join(cacheDir, "sha256")
+	fmt.Printf("Attempting to create sha dir: %s\n", shaDir)
+
 	err = os.MkdirAll(shaDir, 0755)
 	if err != nil {
-		fmt.Printf("Cannot create sha dir: %s\n", err.Error())
+		fmt.Printf("Error creating sha dir: %s\n", err.Error())
 		os.Exit(1)
 	}
 

@@ -5,186 +5,218 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"kamaji/obj"
-	"kamaji/rt"
-	"kamaji/tools"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"kamaji/obj"
+	"kamaji/rt"
+	"kamaji/tools"
 )
 
 func parseMetadata(metadata string) (string, string) {
-	parts := strings.Split(metadata, ",")
-	return parts[1], parts[0]
+	i := strings.LastIndex(metadata, ",")
+	if i <= 0 || i == len(metadata)-1 {
+		return "", ""
+	}
+	return metadata[i+1:], metadata[:i]
 }
 
-func handleMacBinaryFile(tfi obj.ThirdPartyFileInfo) error {
-	tmpDir := filepath.Join(tfi.FileName, "__TMP__")
-	if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create __TMP__ directory: %s", err.Error())
+func handleExecutableFile(tfi obj.ThirdPartyFileInfo) error {
+	dest := filepath.Join(tfi.FileName, "__TMP__", tfi.FinalName)
+	if !filepath.IsLocal(tfi.FinalName) {
+		return fmt.Errorf("invalid artifact path")
 	}
-
-	sourceFile := filepath.Join(tfi.FileName, "file")
-	destFile := filepath.Join(tmpDir, filepath.Base(tfi.FinalName))
-	if err := tools.CopyFile(sourceFile, destFile); err != nil {
-		return fmt.Errorf("failed to copy Mach-O binary: %s", err.Error())
+	if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
+		return err
 	}
-
-	if err := os.Chmod(destFile, 0700); err != nil {
-		return fmt.Errorf("failed to make Mach-O binary executable: %s", err.Error())
+	if err := tools.CopyFile(filepath.Join(tfi.FileName, "file"), dest); err != nil {
+		return err
 	}
-
-	return nil
+	return os.Chmod(dest, 0700)
 }
 
-func handleZipFile(tfi obj.ThirdPartyFileInfo, fileName string) error {
-	tmpDir := filepath.Join(tfi.FileName, "__TMP__")
-	if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create __TMP__ directory: %s", err.Error())
+func (scope *Preparer) handleTarGzFile(tfi obj.ThirdPartyFileInfo) error {
+	dest := filepath.Join(tfi.FileName, "__TMP__")
+	if err := os.MkdirAll(dest, 0700); err != nil {
+		return err
 	}
-
-	destFile := filepath.Join(tmpDir, fmt.Sprintf("%s.zip", fileName))
-	sourceFile := filepath.Join(tfi.FileName, "file")
-	if err := tools.CopyFile(sourceFile, destFile); err != nil {
-		return fmt.Errorf("failed to copy file: %s", err.Error())
+	if err := scope.extractTarGz(filepath.Join(tfi.FileName, "file"), dest); err != nil {
+		return err
 	}
-
-	return tools.Unzip(destFile, tmpDir)
+	path := tools.GetFullPath(dest, tfi.FinalName)
+	if path == "" {
+		return fmt.Errorf("artifact file not found: %s", tfi.FinalName)
+	}
+	return os.Chmod(path, 0700)
 }
 
-func handleTarGzFile(tfi obj.ThirdPartyFileInfo) error {
-	tmpDir := filepath.Join(tfi.FileName, "__TMP__")
-	if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create __TMP__ directory: %s", err.Error())
-	}
-
-	sourceFile := filepath.Join(tfi.FileName, "file")
-	if err := extractTarGz(sourceFile, tmpDir); err != nil {
-		return fmt.Errorf("failed to extract tar.gz file: %s", err.Error())
-	}
-
-	targetFilePath := filepath.Join(tmpDir, "darwin-arm64", filepath.Base(tfi.FinalName))
-	if err := os.Chmod(targetFilePath, 0755); err != nil {
-		return fmt.Errorf("failed to make file executable: %s", err.Error())
-	}
-
-	return nil
-}
-
-func handleFileType(fileType string, tfi obj.ThirdPartyFileInfo, fileName string) error {
+func (scope *Preparer) handleFileType(fileType string, tfi obj.ThirdPartyFileInfo) error {
 	switch fileType {
 	case "application/zip":
-		return handleZipFile(tfi, fileName)
-	case "application/x-mach-binary":
-		return handleMacBinaryFile(tfi)
+		return (&tools.Context{Runtime: scope.Runtime}).Unzip(filepath.Join(tfi.FileName, "file"), filepath.Join(tfi.FileName, "__TMP__"))
+	case "application/x-mach-binary", "application/x-executable", "application/x-elf", "application/x-sharedlib":
+		return handleExecutableFile(tfi)
 	case "application/gzip":
-		return handleTarGzFile(tfi)
+		return scope.handleTarGzFile(tfi)
 	default:
 		return fmt.Errorf("unsupported file type: %s", fileType)
 	}
 }
 
-func extractTarGz(src, dest string) error {
-	file, err := os.Open(src)
+func (scope *Preparer) extractTarGz(src, dest string) error {
+	limits, err := scope.Runtime.EffectiveLimits()
 	if err != nil {
-		return fmt.Errorf("failed to open tar.gz file: %s", err.Error())
+		return err
 	}
-	defer file.Close()
-
-	gzr, err := gzip.NewReader(file)
+	f, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("failed to create gzip reader: %s", err.Error())
+		return fmt.Errorf("open archive: %w", err)
 	}
-	defer gzr.Close()
-
-	tarReader := tar.NewReader(gzr)
-
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() > limits.MaxDownloadBytes {
+		return fmt.Errorf("tar archive exceeds download byte limit")
+	}
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("read gzip: %w", err)
+	}
+	defer gz.Close()
+	root, err := os.OpenRoot(dest)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	// Limit decoded headers, PAX metadata, padding, and trailing streams too.
+	// EffectiveLimits has checked this arithmetic for overflow.
+	streamLimit := limits.MaxExtractBytes + limits.MaxArchiveEntries*1024 + (1 << 20)
+	decoded := &io.LimitedReader{R: gz, N: streamLimit + 1}
+	tr := tar.NewReader(decoded)
+	remaining, entries := limits.MaxExtractBytes, int64(0)
 	for {
-		header, err := tarReader.Next()
+		h, err := tr.Next()
 		if err == io.EOF {
-			break // End of archive
-		}
-		if err != nil {
-			return fmt.Errorf("failed to read tar header: %s", err.Error())
-		}
-
-		target := filepath.Join(dest, header.Name)
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.ModePerm); err != nil {
-				return fmt.Errorf("failed to create directory: %s", err.Error())
+			// A tar EOF precedes the gzip trailer. Drain the bounded remainder
+			// so corruption or appended expansion is not silently accepted.
+			_, err := io.Copy(io.Discard, decoded)
+			if decoded.N == 0 {
+				return fmt.Errorf("tar decoded stream exceeds byte limit")
 			}
-		case tar.TypeReg:
-			outFile, err := os.Create(target)
-			if err != nil {
-				return fmt.Errorf("failed to create file: %s", err.Error())
-			}
-			if _, err := io.Copy(outFile, tarReader); err != nil {
-				outFile.Close()
-				return fmt.Errorf("failed to copy file: %s", err.Error())
-			}
-			outFile.Close()
-		default:
-			return fmt.Errorf("unsupported file type: %c", header.Typeflag)
-		}
-	}
-
-	return nil
-}
-
-func CreateExecRootDir(target obj.ExecTarget) error {
-	execRootDir := fmt.Sprintf(
-		"%s/execroot/%s-%s",
-		rt.Config.TmpDir,
-		target.Name,
-		tools.RandStringRunes(6),
-	)
-	if rt.Config.DebugMode {
-		log.Printf("Creating execroot dir: %s\n", execRootDir)
-	}
-
-	if err := os.MkdirAll(execRootDir, 0700); err != nil {
-		return fmt.Errorf("failed to create execroot dir: %s", err.Error())
-	}
-
-	rt.Config.ExecRootDir = execRootDir
-
-	return nil
-}
-
-func CopyThirdPartyIntoExecRootDir() error {
-	for fileName, tfi := range rt.Config.ThirdPartyFiles {
-		metadataFilePath := filepath.Join(tfi.FileName, "metadata")
-		metadataContent, err := os.ReadFile(metadataFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to read metadata file: %s", err.Error())
-		}
-
-		metadata := string(metadataContent)
-		fileType, targetFileName := parseMetadata(metadata)
-		if err := handleFileType(fileType, tfi, fileName); err != nil {
 			return err
 		}
-
-		// create external dir in execroot
-		externalDir := filepath.Join(rt.Config.ExecRootDir, "external")
-		if err := os.MkdirAll(externalDir, 0700); err != nil {
-			return fmt.Errorf("failed to create external dir: %s", err.Error())
+		if err != nil {
+			return fmt.Errorf("read tar entry: %w", err)
 		}
-
-		thirdPartyFileInExecRootDir := filepath.Join(rt.Config.ExecRootDir, "external", tfi.FinalName)
-		targetFullPath := tools.GetFullPath(filepath.Join(tfi.FileName, "__TMP__"), targetFileName)
-		if targetFullPath == "" {
-			return fmt.Errorf("target file not found in %s", filepath.Join(tfi.FileName, "__TMP__"))
+		entries++
+		if entries > limits.MaxArchiveEntries {
+			return fmt.Errorf("tar archive exceeds entry limit")
 		}
-
-		if err := os.Symlink(targetFullPath, thirdPartyFileInExecRootDir); err != nil {
-			return fmt.Errorf("failed to create softlink: %s", err.Error())
+		if h.Size < 0 || h.Size > remaining {
+			return fmt.Errorf("tar archive exceeds extracted byte limit")
 		}
-
-		rt.Config.ThirdPartyFinalPaths[fileName] = targetFullPath
+		remaining -= h.Size
+		if !filepath.IsLocal(h.Name) {
+			return fmt.Errorf("illegal archive entry: %s", h.Name)
+		}
+		switch h.Typeflag {
+		case tar.TypeDir:
+			if err := root.MkdirAll(h.Name, 0755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := root.MkdirAll(filepath.Dir(h.Name), 0755); err != nil {
+				return err
+			}
+			out, err := root.OpenFile(h.Name, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(h.Mode).Perm())
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(out, tr)
+			closeErr := out.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		default:
+			return fmt.Errorf("unsupported tar entry type: %c", h.Typeflag)
+		}
 	}
+}
 
+func (scope *Preparer) CreateExecRootDir(target obj.ExecTarget) error {
+	if target.Name == "" || target.Name == "." || target.Name == ".." || strings.ContainsAny(target.Name, `/\`) {
+		return fmt.Errorf("invalid target name")
+	}
+	if scope.Runtime.Config.TmpDir == "" {
+		return fmt.Errorf("temporary directory is not configured")
+	}
+	if err := scope.Runtime.EnsureTempDir(); err != nil {
+		return err
+	}
+	parent := filepath.Join(scope.Runtime.Config.TmpDir, "execroot")
+	if err := rt.EnsurePrivateDir(parent); err != nil {
+		return err
+	}
+	dir, err := os.MkdirTemp(parent, target.Name+"-")
+	if err != nil {
+		return err
+	}
+	scope.Runtime.Config.ExecRootDir = dir
+	return nil
+}
+
+func (scope *Preparer) CopyThirdPartyIntoExecRootDir() error {
+	if scope.Runtime.Config.ThirdPartyFinalPaths == nil {
+		scope.Runtime.Config.ThirdPartyFinalPaths = make(map[string]string)
+	}
+	for name, cached := range scope.Runtime.Config.ThirdPartyFiles {
+		if !filepath.IsLocal(cached.FinalName) || cached.FinalName == "." {
+			return fmt.Errorf("invalid artifact path")
+		}
+		metadata, err := os.ReadFile(filepath.Join(cached.FileName, "metadata"))
+		if err != nil {
+			return fmt.Errorf("read metadata: %w", err)
+		}
+		fileType, filePath := parseMetadata(string(metadata))
+		if fileType == "" || filePath == "" {
+			return fmt.Errorf("invalid artifact metadata")
+		}
+		// Extract into a private execution directory, never into the shared cache.
+		dir, err := os.MkdirTemp(scope.Runtime.Config.ExecRootDir, "artifact-")
+		if err != nil {
+			return err
+		}
+		if err := tools.CopyFile(filepath.Join(cached.FileName, "file"), filepath.Join(dir, "file")); err != nil {
+			return err
+		}
+		local := obj.ThirdPartyFileInfo{FileName: dir, FinalName: cached.FinalName}
+		if err := scope.handleFileType(fileType, local); err != nil {
+			return err
+		}
+		path := tools.GetFullPath(filepath.Join(dir, "__TMP__"), cached.FinalName)
+		if path == "" {
+			return fmt.Errorf("artifact file not found: %s", cached.FinalName)
+		}
+		if err := os.Chmod(path, 0700); err != nil {
+			return err
+		}
+		link := filepath.Join(scope.Runtime.Config.ExecRootDir, "external", cached.FinalName)
+		if err := os.MkdirAll(filepath.Dir(link), 0700); err != nil {
+			return err
+		}
+		if _, err := os.Lstat(link); err == nil {
+			return fmt.Errorf("duplicate external artifact path: %s", cached.FinalName)
+		}
+		if err := os.Symlink(path, link); err != nil {
+			return err
+		}
+		scope.Runtime.Config.ThirdPartyFinalPaths[name] = path
+	}
 	return nil
 }

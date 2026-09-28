@@ -1,183 +1,177 @@
 package runner
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"kamaji/execroot"
-	"kamaji/obj"
-	"kamaji/rt"
-	"kamaji/tools"
-	"log"
+	"kamaji/internal/process"
+	"kamaji/target"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"kamaji/execroot"
+	"kamaji/obj"
+	"kamaji/tools"
+	"kamaji/utils"
 )
 
-func prepareCmdline(python_executable string, target obj.ExecTarget) (string, error) {
-	convertToJSON := func(value any) (string, error) {
-		switch v := value.(type) {
-		case map[any]any:
-			normalizedMap := tools.NormalizeMap(v)
-			jsonBytes, err := json.Marshal(normalizedMap)
-			if err != nil {
-				return "", errors.New("error marshaling map to JSON")
-			}
-			return fmt.Sprintf("'%s'", string(jsonBytes)), nil
+func (scope *Executor) prepareArgs(target obj.ExecTarget) ([]string, error) {
+	rule, err := (&tools.Context{Runtime: scope.Runtime}).GetRule(target)
+	if err != nil {
+		return nil, err
+	}
+	if !filepath.IsAbs(rule) {
+		rule = filepath.Join(scope.Runtime.Config.WorkspaceConfig.RulesDir, rule)
+	}
+	args := []string{rule}
+	keys := make([]string, 0, len(target.Config))
+	for key := range target.Config {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if key == "" || strings.ContainsAny(key, "=\x00") {
+			return nil, fmt.Errorf("invalid option name")
+		}
+		value := target.Config[key]
+		var rendered string
+		switch typed := value.(type) {
 		case string:
-			if strings.HasPrefix(v, "@@") {
-				if rt.Config.DebugMode {
-					log.Printf("Resolving third party file: %s\n", v)
-					log.Printf("Third party final paths: %+v\n", rt.Config.ThirdPartyFinalPaths)
-				}
-				resolvedKey := v[2:]
-				if resolvedPath, exists := rt.Config.ThirdPartyFinalPaths[resolvedKey]; exists {
-					return resolvedPath, nil
-				} else {
-					return "", fmt.Errorf("third party file not found: %s", resolvedKey)
+			rendered = typed
+			if strings.HasPrefix(typed, "@@") {
+				var exists bool
+				rendered, exists = scope.Runtime.Config.ThirdPartyFinalPaths[typed[2:]]
+				if !exists {
+					return nil, fmt.Errorf("third party file not found: %s", typed[2:])
 				}
 			}
-			return v, nil
-		case bool:
-			return fmt.Sprintf("%t", v), nil
 		default:
-			return fmt.Sprintf("%v", v), nil
+			// Normalize YAML maps recursively before JSON encoding structured values.
+			normalized := tools.NormalizeMap(map[any]any{"value": value})["value"]
+			data, err := json.Marshal(normalized)
+			if err != nil {
+				return nil, fmt.Errorf("encode option %q: %w", key, err)
+			}
+			rendered = string(data)
 		}
+		args = append(args, "--"+key+"="+rendered)
 	}
-
-	cmdline := fmt.Sprintf("%s %s/%s", python_executable, rt.Config.WorkspaceConfig.RulesDir, target.Rule)
-	for k, v := range target.Config {
-		jsonValue, err := convertToJSON(v)
-		if err != nil {
-			return "", err
-		}
-		cmdline += fmt.Sprintf(" --%s=%s", k, jsonValue)
-	}
-
-	return cmdline, nil
+	return args, nil
 }
 
-func Run(workspaceConfig obj.WorkspaceConfig, target obj.ExecTarget, pythonArgs ...string) error {
-	// Use the Python interpreter provided via CLI if available; otherwise, look it up.
-	python_executable := rt.Config.PythonInterpreter
-	var err error
-	if python_executable == "" {
-		python_executable, err = exec.LookPath("python")
-		if err != nil {
-			if rt.Config.DebugMode {
-				log.Printf("python not found in path: %v\n", err)
-			}
-			return errors.New("python not found in path")
+func (scope *Executor) Run(workspace obj.WorkspaceConfig, selected obj.ExecTarget, pythonArgs ...string) (result error) {
+	ctx := scope.Runtime.ExecutionContext()
+	if scope.Runtime.Timeout < 0 {
+		return fmt.Errorf("execution timeout cannot be negative")
+	}
+	if scope.Runtime.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, scope.Runtime.Timeout)
+		defer cancel()
+	}
+	previousContext := scope.Runtime.Context
+	scope.Runtime.Context = ctx
+	defer func() { scope.Runtime.Context = previousContext }()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := scope.Preflight(workspace, selected); err != nil {
+		return err
+	}
+	python, err := scope.Interpreter()
+	if err != nil {
+		return err
+	}
+	cwd, err := scope.Runtime.WorkingDirectory()
+	if err != nil {
+		return err
+	}
+	lease, err := scope.Runtime.RuntimeLease(false)
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	if err := (&target.Manager{Runtime: scope.Runtime}).InitThirdPartyUsedInTarget(workspace, selected); err != nil {
+		return err
+	}
+	if err := (&execroot.Preparer{Runtime: scope.Runtime}).CreateExecRootDir(selected); err != nil {
+		return err
+	}
+	started := false
+	defer func() { result = errors.Join(result, scope.Runtime.FinishExecution(started)) }()
+	if err := (&execroot.Preparer{Runtime: scope.Runtime}).CopyThirdPartyIntoExecRootDir(); err != nil {
+		return err
+	}
+	args, err := scope.prepareArgs(selected)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(args[0])
+	if err != nil {
+		return fmt.Errorf("rule: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("rule must be a regular file")
+	}
+	command := exec.Command(python, append(args, pythonArgs...)...)
+	command.Dir = cwd
+	if scope.Runtime.Config.Isolated {
+		command.Dir = filepath.Join(scope.Runtime.Config.ExecRootDir, "origin")
+		if err := utils.CopyDirectory(cwd, command.Dir); err != nil {
+			return fmt.Errorf("isolate workspace: %w", err)
 		}
 	}
-	if rt.Config.DebugMode {
-		log.Printf("Using python interpreter: %s\n", python_executable)
+	common := workspace.RulesCommonDir
+	if common == "" {
+		common = "common"
 	}
-
-	if rt.Config.DebugMode {
-		log.Printf("Creating execroot dir: %s\n", rt.Config.ExecRootDir)
+	pythonPath := common
+	if !filepath.IsAbs(pythonPath) {
+		pythonPath = filepath.Join(workspace.RulesDir, common)
 	}
-	err = execroot.CreateExecRootDir(target)
-	if err != nil {
-		return err
-	}
-
-	if rt.Config.DebugMode {
-		log.Printf("Copying third party into execroot dir: %s\n", rt.Config.ExecRootDir)
-	}
-	err = execroot.CopyThirdPartyIntoExecRootDir()
-	if err != nil {
-		return err
-	}
-
-	if rt.Config.DebugMode {
-		log.Printf("Creating rules dir in execroot dir: %s\n", rt.Config.ExecRootDir)
-	}
-	rulesDirInExecRoot := filepath.Join(rt.Config.ExecRootDir, "rules")
-	err = os.MkdirAll(rulesDirInExecRoot, 0700)
-	if err != nil {
-		return err
-	}
-
-	commonDirInExecRoot := filepath.Join(rt.Config.ExecRootDir, "common")
-
-	if rt.Config.DebugMode {
-		log.Printf("Creating rule dir in execroot dir: %s\n", rt.Config.ExecRootDir)
-	}
-	ruleDir := filepath.Dir(target.Rule)
-	linkSource := filepath.Join(rt.Config.WorkspaceConfig.RulesDir, ruleDir)
-	linkTarget := filepath.Join(rulesDirInExecRoot, ruleDir)
-
-	err = os.Symlink(linkSource, linkTarget)
-	if err != nil {
-		return err
-	}
-
-	if rt.Config.DebugMode {
-		log.Printf("Creating common dir in execroot dir: %s\n", rt.Config.ExecRootDir)
-	}
-	linkSource = filepath.Join(rt.Config.WorkspaceConfig.RulesDir, "common")
-	err = os.Symlink(linkSource, commonDirInExecRoot)
-	if err != nil {
-		if rt.Config.DebugMode {
-			log.Printf("Error creating symlink for common dir: %s to %s\n", linkSource, commonDirInExecRoot)
-		}
-		return err
-	}
-
-	if rt.Config.Isolated {
-		if rt.Config.DebugMode {
-			log.Printf("Mirroring directory with sym links: %s\n", rt.Config.ExecRootDir)
-		}
-		targetDir := filepath.Join(rt.Config.ExecRootDir, "origin")
-		sourceDir := os.Getenv("PWD")
-		err = tools.MirrorDirectoryWithSymLinks(sourceDir, targetDir)
-		if err != nil {
+	// Environ uses command.Dir for PWD; exec.Cmd resolves duplicate variables by
+	// keeping the final value, so inherited values cannot override these settings.
+	command.Env = append(command.Environ(), "KAMAJI_ORGANIZATION_DOMAIN="+workspace.WorkspaceVars[0].Org_Domain, "PYTHONPATH="+pythonPath)
+	command.Stdin = os.Stdin
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	run := scope.RunCommand
+	if run == nil {
+		run = func(c *exec.Cmd) error {
+			var err error
+			started, err = process.Run(ctx, c, scope.Runtime.KillGrace)
 			return err
 		}
+	} else {
+		started = true
 	}
+	if err := run(command); err != nil {
+		return fmt.Errorf("rule execution failed: %w", err)
+	}
+	return nil
+}
 
-	if rt.Config.DebugMode {
-		log.Printf("Preparing cmdline for target: %s\n", target.Name)
+func (scope *Executor) ValidateRule(selected obj.ExecTarget) error {
+	if selected.Name == "" || selected.Name == "." || selected.Name == ".." || strings.ContainsAny(selected.Name, `/\`) {
+		return fmt.Errorf("invalid target name")
 	}
-	cmdline, err := prepareCmdline(python_executable, target)
+	rule, err := (&tools.Context{Runtime: scope.Runtime}).GetRule(selected)
 	if err != nil {
 		return err
 	}
-
-	if cmdline == "" {
-		return errors.New("cmdline could not be prepared")
+	if !filepath.IsAbs(rule) {
+		rule = filepath.Join(scope.Runtime.Config.WorkspaceConfig.RulesDir, rule)
 	}
-
-	if len(pythonArgs) > 0 {
-		cmdline += " " + strings.Join(pythonArgs, " ")
-	}
-
-	if rt.Config.DebugMode {
-		log.Printf("Running command:\n%s\n", cmdline)
-	}
-
-	pythonPath := workspaceConfig.RulesDir + "/" + rt.Config.WorkspaceConfig.RulesCommonDir
-	cmd := exec.Command("bash", "-c", cmdline)
-
-	if rt.Config.Isolated {
-		cmd.Dir = rt.Config.ExecRootDir + "/" + "origin"
-	} else {
-		cmd.Dir = os.Getenv("PWD")
-	}
-	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "KAMAJI_ORGANIZATION_DOMAIN="+workspaceConfig.WorkspaceVars[0].Org_Domain)
-	cmd.Env = append(cmd.Env, "PYTHONPATH="+pythonPath)
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err = cmd.Run()
+	info, err := os.Stat(rule)
 	if err != nil {
-		log.Fatalf("Command execution failed: %v", err)
+		return fmt.Errorf("rule: %w", err)
 	}
-
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("rule must be a regular file")
+	}
 	return nil
 }

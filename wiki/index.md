@@ -1,0 +1,18 @@
+# Kamaji wiki index
+
+- [Current repository state and documentation scope](repos/kamaji.md)
+- [Project overview](../README.md)
+- [Usage guide](../docs/HOW_TO_USE.md)
+- [CLI commands, diagnostics, and maintenance](../docs/CLI_REFERENCE.md)
+- [Runtime, cleanup, installation, and Python setup](../docs/RUNTIME_LIFECYCLE.md)
+- [Resource limits](../docs/RESOURCE_LIMITS.md)
+- [Executor trust boundary](../docs/EXECUTOR_SECURITY.md)
+- [Dependencies and YAML parser](../docs/DEPENDENCIES.md)
+- [Tests and recorded verification](../docs/TESTING.md)
+- [Release builds and publication scope](../docs/RELEASING.md)
+- [v0.1.0 release notes](../docs/RELEASE-v0.1.0.md)
+- [Release preparation record](log/0003-2026-09-28-release-v0.1.0.md)
+- [General review and completed improvements](../docs/GENERAL_REVIEW.md)
+- [Historical initial audit and dependency upgrades](audit-2026-09-28.md)
+- [Documentation refresh record](log/0001-2026-09-28-documentation-refresh.md)
+- [Usability implementation record](log/0002-2026-09-28-usability-improvements.md)

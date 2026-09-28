@@ -1,346 +1,275 @@
 package target
 
 import (
+	"bytes"
+	"encoding/hex"
 	"fmt"
-	"io"
-	"kamaji/obj"
-	"kamaji/rt"
-	"kamaji/tools"
-	"log"
+	cfg "kamaji/config"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
-	"gopkg.in/yaml.v2"
+	"kamaji/obj"
+	"kamaji/tools"
 )
 
-func ParseBuildFile(buildFileName string, targetName string) (obj.ExecTarget, error) {
-	if rt.Config.DebugMode {
-		log.Printf("Parsing build file: %s\n", buildFileName)
+func ParseBuildFile(buildFileName, targetName string) (obj.ExecTarget, error) {
+	build, err := LoadBuildFile(buildFileName)
+	if err != nil {
+		return obj.ExecTarget{}, err
 	}
+	for _, entry := range build.Targets {
+		if entry.Name == targetName {
+			return entry, nil
+		}
+	}
+	names := make([]string, 0, len(build.Targets))
+	for _, entry := range build.Targets {
+		names = append(names, entry.Name)
+	}
+	sort.Strings(names)
+	return obj.ExecTarget{}, fmt.Errorf("target %q not found; available targets: %s", targetName, strings.Join(names, ", "))
+}
 
+func LoadBuildFile(buildFileName string) (obj.BuildFile, error) {
 	data, err := os.ReadFile(buildFileName)
 	if err != nil {
-		return obj.ExecTarget{}, err
+		return obj.BuildFile{}, err
 	}
-
-	var buildFile obj.BuildFile
-	if err := yaml.Unmarshal(data, &buildFile); err != nil {
-		return obj.ExecTarget{}, err
+	var build obj.BuildFile
+	if err := cfg.DecodeYAML(bytes.NewReader(data), &build); err != nil {
+		return obj.BuildFile{}, err
 	}
-
-	for _, target := range buildFile.Targets {
-		if target.Name == targetName {
-			return target, nil
+	names := make(map[string]bool)
+	for i := range build.Targets {
+		selected := &build.Targets[i]
+		if selected.Name == "" || names[selected.Name] {
+			return obj.BuildFile{}, fmt.Errorf("empty or duplicate target %q", selected.Name)
+		}
+		names[selected.Name] = true
+		if strings.TrimSpace(selected.Rule) == "" {
+			return obj.BuildFile{}, fmt.Errorf("target %q has no rule", selected.Name)
+		}
+		if selected.Config == nil {
+			selected.Config = make(map[string]any)
 		}
 	}
-
-	return obj.ExecTarget{}, fmt.Errorf("target %s not found", targetName)
+	return build, nil
 }
 
-// loadExpectedVariables is a private helper that reads the rule_definition.yaml file
-// and returns the contents of its "variables" section as a map.
-func loadExpectedVariables(filePath string) (map[string]any, error) {
-	data, err := os.ReadFile(filePath)
+func (scope *Manager) ValidateTargetVariables(values map[string]any) error {
+	schema, err := scope.Schema()
 	if err != nil {
-		fmt.Printf("Error reading variables file: %s\n", err.Error())
-		return nil, err
+		return fmt.Errorf("load rule variables: %w", err)
 	}
-
-	// Unmarshal the whole file into a generic map
-	var yamlContent map[string]any
-	err = yaml.Unmarshal(data, &yamlContent)
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract the "variables" section
-	variablesSection, ok := yamlContent["variables"]
-	if !ok {
-		return nil, fmt.Errorf("no 'variables' section found in the YAML file")
-	}
-
-	var variablesMap map[string]any
-	switch v := variablesSection.(type) {
-	case map[string]any:
-		variablesMap = v
-	case map[any]any:
-		variablesMap = make(map[string]any)
-		for key, value := range v {
-			strKey, ok := key.(string)
-			if !ok {
-				return nil, fmt.Errorf("non-string key found in variables section: %v", key)
-			}
-			variablesMap[strKey] = value
-		}
-	default:
-		return nil, fmt.Errorf("'variables' section is not a valid map")
-	}
-
-	return variablesMap, nil
+	return validateSchema(schema, values)
 }
 
-func ValidateTargetVariables(target map[string]any) {
-	definitionFile := filepath.Join(rt.Config.WorkspaceConfig.RulesDir, filepath.Dir(rt.Config.ExecTarget.Rule), "rule_definition.yaml")
-	expectedTypes, err := loadExpectedVariables(definitionFile)
-	if err != nil {
-		log.Printf("No variables file found for rule %s\n", filepath.Base(rt.Config.ExecTarget.Rule))
-		os.Exit(1)
+func (scope *Manager) InitThirdPartyUsedInTarget(workspace obj.WorkspaceConfig, selected obj.ExecTarget) error {
+	if err := scope.ValidateDependencies(workspace, selected); err != nil {
+		return err
 	}
-
-	// Iterate over each expected variable
-	for varName, expectedValue := range expectedTypes {
-		var expectedType string
-
-		// Determine the expected type depending on the format provided in YAML.
-		switch v := expectedValue.(type) {
-		case string:
-			// The expected type is provided directly as a string.
-			expectedType = v
-		case map[string]any:
-			// If the expected value is a map, look up the "type" key.
-			if typeVal, exists := v["type"]; exists {
-				if typeStr, ok := typeVal.(string); ok {
-					expectedType = typeStr
-				} else {
-					fmt.Printf("Expected type for variable '%s' should be a string; got %T\n", varName, typeVal)
-					continue
-				}
-			} else {
-				fmt.Printf("No 'type' key found for variable '%s'\n", varName)
+	names := []string{}
+	seen := map[string]bool{}
+	for _, value := range selected.Config {
+		if name, ok := value.(string); ok && strings.HasPrefix(name, "@@") {
+			if seen[name] {
 				continue
 			}
-		case map[any]any:
-			// Convert this map to map[string]any
-			conv := make(map[string]any)
-			for key, val := range v {
-				strKey, ok := key.(string)
-				if !ok {
-					fmt.Printf("Key is not a string: %v\n", key)
-					continue
-				}
-				conv[strKey] = val
-			}
-			if typeVal, exists := conv["type"]; exists {
-				if typeStr, ok := typeVal.(string); ok {
-					expectedType = typeStr
-				} else {
-					fmt.Printf("Expected type for variable '%s' should be a string; got %T\n", varName, typeVal)
-					continue
-				}
-			} else {
-				fmt.Printf("No 'type' key found for variable '%s'\n", varName)
-				continue
-			}
-		default:
-			fmt.Printf("Unsupported expected type format for variable '%s': %T\n", varName, expectedValue)
-			continue
-		}
-
-		// Retrieve the actual variable value from target
-		actualValue, exists := target[varName]
-		if !exists {
-			fmt.Printf("Variable '%s' is missing in the target configuration.\n", varName)
-			continue
-		}
-
-		// Determine the type of the actual value using our helper function.
-		actualType := determineVariableType(actualValue)
-		if actualType != expectedType {
-			fmt.Printf("Type mismatch for variable '%s': expected '%s', got '%s'\n", varName, expectedType, actualType)
-			os.Exit(1)
+			seen[name] = true
+			names = append(names, strings.TrimPrefix(name, "@@"))
 		}
 	}
-}
-
-func determineVariableType(value any) string {
-	switch value.(type) {
-	case string:
-		return "string"
-	case int:
-		return "int"
-	case bool:
-		return "bool"
-	// Add more types as needed
-	default:
-		return "unknown"
+	sort.Strings(names)
+	for _, name := range names {
+		if err := scope.downloadThirdParty(workspace, name); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func InitThirdPartyUsedInTarget(workspaceConfig obj.WorkspaceConfig, target obj.ExecTarget) error {
-	var lastError error
-	for _, value := range target.Config {
-		if strValue, ok := value.(string); ok && strings.HasPrefix(strValue, "@@") {
-			downloadCandidate := strValue[2:]
-			if err := downloadThirdParty(workspaceConfig, downloadCandidate); err != nil {
-				log.Printf("Error downloading %s: %v", downloadCandidate, err)
-				lastError = err
+func (scope *Manager) ValidateDependencies(workspace obj.WorkspaceConfig, selected obj.ExecTarget) error {
+	for _, value := range selected.Config {
+		if name, ok := value.(string); ok && strings.HasPrefix(name, "@@") {
+			entry, err := findThirdPartyConfig(workspace, strings.TrimPrefix(name, "@@"))
+			if err != nil {
+				return err
+			}
+			if _, err := scope.cachePath(entry); err != nil {
+				return err
+			}
+			location, err := url.ParseRequestURI(entry.URLs[scope.Runtime.Config.Platform])
+			if err != nil || location.Hostname() == "" || (location.Scheme != "https" && location.Scheme != "http") {
+				return fmt.Errorf("third party %q requires a valid HTTP(S) URL for %s", entry.Name, scope.Runtime.Config.Platform)
 			}
 		}
 	}
-	return lastError
+	return nil
 }
 
-func downloadThirdParty(workspaceConfig obj.WorkspaceConfig, downloadCandidate string) error {
-	if rt.Config.DebugMode {
-		log.Printf("Looking for third party config for %s\n", downloadCandidate)
-	}
-	thirdParty, err := findThirdPartyConfig(workspaceConfig, downloadCandidate)
-	if err != nil {
-		log.Fatalf("Third party config requested from BUILD.yaml for %s is not present in workspace config.\n", downloadCandidate)
-	}
-
-	if doesThirdPartyExist(thirdParty.Name) {
-		if rt.Config.DebugMode {
-			log.Printf("Third party %s already exists, skipping\n", thirdParty.Name)
+func findThirdPartyConfig(workspace obj.WorkspaceConfig, name string) (obj.ThirdPartyConfig, error) {
+	var selected *obj.ThirdPartyConfig
+	for _, entry := range workspace.ThirdParty {
+		if entry.Name == name {
+			if selected != nil {
+				return obj.ThirdPartyConfig{}, fmt.Errorf("duplicate third party %q", name)
+			}
+			selected = &entry
 		}
-		return validateCachedFile(thirdParty)
 	}
+	if selected != nil {
+		return *selected, nil
+	}
+	return obj.ThirdPartyConfig{}, fmt.Errorf("third party %q not found", name)
+}
 
-	err = downloadAndCacheFile(thirdParty)
+func (scope *Manager) cachePath(thirdParty obj.ThirdPartyConfig) (string, error) {
+	digest := thirdParty.SHA256s[scope.Runtime.Config.Platform]
+	decoded, err := hex.DecodeString(digest)
+	if err != nil || len(decoded) != 32 {
+		return "", fmt.Errorf("invalid SHA256 for third party %q on %s", thirdParty.Name, scope.Runtime.Config.Platform)
+	}
+	if !filepath.IsLocal(thirdParty.FilePath) || thirdParty.FilePath == "." {
+		return "", fmt.Errorf("invalid third party file path")
+	}
+	return filepath.Join(scope.Runtime.Config.CacheDir, strings.ToLower(digest)), nil
+}
+
+func (scope *Manager) downloadThirdParty(workspace obj.WorkspaceConfig, name string) error {
+	entry, err := findThirdPartyConfig(workspace, name)
 	if err != nil {
-		log.Printf("Failed to download and cache file: %s\n", err.Error())
 		return err
 	}
-
-	return nil
-}
-
-func findThirdPartyConfig(workspaceConfig obj.WorkspaceConfig, downloadCandidate string) (obj.ThirdPartyConfig, error) {
-	for _, thirdParty := range workspaceConfig.ThirdParty {
-		if thirdParty.Name == downloadCandidate {
-			return thirdParty, nil
-		}
-	}
-	return obj.ThirdPartyConfig{}, fmt.Errorf("third party config not found for %s", downloadCandidate)
-}
-
-func doesThirdPartyExist(downloadCandidate string) bool {
-	var tpConfig obj.ThirdPartyConfig
-	for _, tp := range rt.Config.WorkspaceConfig.ThirdParty {
-		if tp.Name == downloadCandidate {
-			tpConfig = tp
-			break
-		}
-	}
-
-	sha256 := tpConfig.SHA256s[rt.Config.Platform]
-	if sha256 == "" {
-		return false
-	}
-
-	dirToCheck := filepath.Join(rt.Config.CacheDir, sha256)
-	if rt.Config.DebugMode {
-		log.Printf("Checking if third party exists: %s\n", dirToCheck)
-	}
-
-	if _, err := os.Stat(dirToCheck); os.IsNotExist(err) {
-		if rt.Config.DebugMode {
-			log.Printf("Third party does not exist: %s\n", dirToCheck)
-		}
-		return false
-	}
-
-	if rt.Config.DebugMode {
-		log.Printf("Third party exists: %s\n", dirToCheck)
-	}
-	return true
-}
-
-func downloadAndCacheFile(thirdParty obj.ThirdPartyConfig) error {
-	fmt.Printf("Downloading Third Party: %s\n", thirdParty.Name)
-	if rt.Config.DebugMode {
-		log.Printf("Downloading Third Party: %s\n", thirdParty.Name)
-	}
-
-	sha256, url := thirdParty.SHA256s[rt.Config.Platform], thirdParty.URLs[rt.Config.Platform]
-	if sha256 == "" || url == "" {
-		return fmt.Errorf("sha256 or url is empty for %s", thirdParty.Name)
-	}
-
-	if rt.Config.DebugMode {
-		log.Printf("Downloading Third Party: %s from %s\n", thirdParty.Name, url)
-	}
-
-	cacheDir := filepath.Join(rt.Config.CacheDir, sha256)
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return fmt.Errorf("failed to create cache dir: %s", err.Error())
-	}
-
-	filePath := filepath.Join(cacheDir, "file")
-	if err := downloadFile(url, filePath); err != nil {
-		if rt.Config.DebugMode {
-			log.Printf("Failed to download file: %s\n", err.Error())
-		}
+	if _, err := scope.cachePath(entry); err != nil {
 		return err
 	}
-
-	if !tools.IsFileValid(filePath, sha256) {
-		if rt.Config.DebugMode {
-			log.Printf("File is invalid\n")
-		}
-		return fmt.Errorf("file is invalid")
+	if err := scope.validateCachedFile(entry); err == nil {
+		return nil
 	}
+	return scope.downloadAndCacheFile(entry)
+}
 
-	if err := tools.CreateMetadataFile(cacheDir, thirdParty.FilePath); err != nil {
+func (scope *Manager) registerCachedFile(entry obj.ThirdPartyConfig, dir string) {
+	if scope.Runtime.Config.ThirdPartyFiles == nil {
+		scope.Runtime.Config.ThirdPartyFiles = make(map[string]obj.ThirdPartyFileInfo)
+	}
+	scope.Runtime.Config.ThirdPartyFiles[entry.Name] = obj.ThirdPartyFileInfo{FileName: dir, FinalName: entry.FilePath}
+}
+
+func (scope *Manager) downloadAndCacheFile(entry obj.ThirdPartyConfig) error {
+	if scope.Runtime.Config.CacheDir == "" {
+		return fmt.Errorf("cache directory is not initialized")
+	}
+	dir, err := scope.cachePath(entry)
+	if err != nil {
 		return err
 	}
-
-	rt.Config.ThirdPartyFiles[thirdParty.Name] = obj.ThirdPartyFileInfo{
-		FileName:  cacheDir,
-		FinalName: thirdParty.FilePath,
+	url := entry.URLs[scope.Runtime.Config.Platform]
+	if url == "" {
+		return fmt.Errorf("missing download URL for third party %q", entry.Name)
 	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(dir, "download-*")
+	if err != nil {
+		return err
+	}
+	path := temp.Name()
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	defer os.Remove(path)
+	if err := scope.downloadFile(url, path); err != nil {
+		return err
+	}
+	if !tools.IsFileValid(path, entry.SHA256s[scope.Runtime.Config.Platform]) {
+		return fmt.Errorf("checksum mismatch for third party %q", entry.Name)
+	}
+	if err := os.Rename(path, filepath.Join(dir, "file")); err != nil {
+		return err
+	}
+	if err := tools.CreateMetadataFile(dir, entry.FilePath); err != nil {
+		return err
+	}
+	scope.registerCachedFile(entry, dir)
 	return nil
 }
 
-func validateCachedFile(thirdParty obj.ThirdPartyConfig) error {
-	if rt.Config.DebugMode {
-		log.Printf("Validating cached file for %s\n", thirdParty.Name)
+func (scope *Manager) validateCachedFile(entry obj.ThirdPartyConfig) error {
+	limits, err := scope.Runtime.EffectiveLimits()
+	if err != nil {
+		return err
 	}
-	cacheDir := filepath.Join(rt.Config.CacheDir, thirdParty.SHA256s[rt.Config.Platform])
-	filePath := filepath.Join(cacheDir, "file")
-
-	if !tools.IsFileValid(filePath, thirdParty.SHA256s[rt.Config.Platform]) {
-		log.Printf("Cached file is invalid\n")
-		return fmt.Errorf("file is invalid")
+	dir, err := scope.cachePath(entry)
+	if err != nil {
+		return err
 	}
-
-	rt.Config.ThirdPartyFiles[thirdParty.Name] = obj.ThirdPartyFileInfo{
-		FileName:  cacheDir,
-		FinalName: thirdParty.FilePath,
+	info, err := os.Stat(filepath.Join(dir, "file"))
+	if err != nil {
+		return err
 	}
-
-	if rt.Config.DebugMode {
-		log.Printf("Cached file is valid\n")
+	if !info.Mode().IsRegular() || info.Size() > limits.MaxDownloadBytes {
+		return fmt.Errorf("cached artifact exceeds download limit or is not a regular file")
 	}
-
+	if !tools.IsFileValid(filepath.Join(dir, "file"), entry.SHA256s[scope.Runtime.Config.Platform]) {
+		return fmt.Errorf("invalid cached file for %q", entry.Name)
+	}
+	// Metadata can be lost independently of the verified payload. Regenerate it
+	// atomically, using this invocation's file alias.
+	if err := tools.CreateMetadataFile(dir, entry.FilePath); err != nil {
+		return err
+	}
+	scope.registerCachedFile(entry, dir)
 	return nil
 }
 
-func downloadFile(url, filePath string) error {
-	resp, err := http.Get(url)
+func (scope *Manager) downloadFile(url, filePath string) error {
+	limits, err := scope.Runtime.EffectiveLimits()
 	if err != nil {
-		return fmt.Errorf("failed to download file: %s", err.Error())
+		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download file: %s", resp.Status)
+	client := scope.Client
+	if client == nil {
+		client = &http.Client{Timeout: 2 * time.Minute}
 	}
-
-	out, err := os.Create(filePath)
+	ctx := scope.Runtime.ExecutionContext()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %s", err.Error())
+		return fmt.Errorf("invalid download request")
 	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		return fmt.Errorf("failed to copy file: %s", err.Error())
+	response, err := client.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// Transport and redirect errors can include full signed URLs, including
+		// in nested causes. Never include their text in a user-visible error.
+		return fmt.Errorf("download request failed (check connectivity and the configured endpoint)")
 	}
-
-	if rt.Config.DebugMode {
-		log.Printf("Downloaded file to: %s\n", filePath)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned HTTP %d", response.StatusCode)
 	}
-	return nil
+	if response.ContentLength > limits.MaxDownloadBytes {
+		return fmt.Errorf("download exceeds configured byte limit")
+	}
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	_, copyErr := tools.CopyWithLimit(file, response.Body, limits.MaxDownloadBytes)
+	closeErr := file.Close()
+	if copyErr != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("download body could not be copied or exceeded the configured byte limit")
+	}
+	return closeErr
 }

@@ -42,3 +42,8 @@ Plan.txt
 **/terraform.tfvars.json
 **/terraform.tfvars.json.lock
 **/.terraform*
+
+.gograph/
+.audit/
+/PROBLEMS.md
+/gograph-report.md

@@ -2,173 +2,166 @@ package rt
 
 import (
 	"fmt"
+	cfg "kamaji/config"
 	"kamaji/obj"
-	"log"
 	"os"
 	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"gopkg.in/yaml.v2"
 )
 
-var Config obj.RuntimeConfig
-
-func readWorkspaceConfig(rulesDirOverride string) (obj.WorkspaceConfig, error) {
-	workspaceConfig := obj.WorkspaceConfig{}
-
-	workspaceFilePath := filepath.Join(Config.WorkspaceDir, obj.WorkspaceFile)
-	if _, err := os.Stat(workspaceFilePath); err == nil {
-		f, err := os.Open(workspaceFilePath)
-		if err != nil {
-			return workspaceConfig, err
-		}
-		defer f.Close()
-
-		err = yaml.NewDecoder(f).Decode(&workspaceConfig)
-		if err != nil {
-			return workspaceConfig, err
-		}
+func (scope *Runtime) readWorkspaceConfig(rulesDirOverride string) (obj.WorkspaceConfig, error) {
+	var config obj.WorkspaceConfig
+	f, err := os.Open(filepath.Join(scope.Config.WorkspaceDir, scope.Config.WorkspaceFile))
+	if err != nil {
+		return config, err
 	}
-
-	// Determine RulesDir with proper priority
+	defer f.Close()
+	if err := cfg.DecodeYAML(f, &config); err != nil {
+		return config, err
+	}
+	names := make(map[string]bool)
+	for _, entry := range config.ThirdParty {
+		if entry.Name == "" || names[entry.Name] {
+			return config, fmt.Errorf("empty or duplicate third-party name %q", entry.Name)
+		}
+		names[entry.Name] = true
+	}
+	if _, err := resolveLimits(config.Limits); err != nil {
+		return config, err
+	}
+	config.WorkspaceRoot = scope.Config.WorkspaceDir
 	if rulesDirOverride != "" {
-		workspaceConfig.RulesDir = rulesDirOverride
-	} else if strings.HasPrefix(workspaceConfig.RulesDir, "//") {
-		workspaceConfig.RulesDir = filepath.Join(Config.WorkspaceDir, workspaceConfig.RulesDir[2:])
-	} else if strings.TrimSpace(workspaceConfig.RulesDir) == "" {
-		workspaceConfig.RulesDir = "/usr/local/share/kamaji/rules"
+		config.RulesDir = rulesDirOverride
 	}
-
-	if Config.DebugMode {
-		log.Printf("Resolved rules directory: %s\n", workspaceConfig.RulesDir)
+	switch {
+	case strings.HasPrefix(config.RulesDir, "//"):
+		config.RulesDir = filepath.Join(scope.Config.WorkspaceDir, config.RulesDir[2:])
+	case strings.TrimSpace(config.RulesDir) == "":
+		config.RulesDir = "/usr/local/share/kamaji/rules"
+		if scope.DefaultRulesDir != "" {
+			config.RulesDir = scope.DefaultRulesDir
+		}
+	case !filepath.IsAbs(config.RulesDir):
+		config.RulesDir = filepath.Join(scope.Config.WorkspaceDir, config.RulesDir)
 	}
-	return workspaceConfig, nil
+	if config.RulesCommonDir == "" {
+		config.RulesCommonDir = "common"
+	}
+	return config, nil
 }
 
-// func detectWorkspaceRoot() error {
-// 	dir, err := os.Getwd()
-// 	if err != nil {
-// 		return err
-// 	}
+// EffectiveLimits also validates direct package callers that do not load YAML.
+func (scope *Runtime) EffectiveLimits() (obj.ResourceLimits, error) {
+	return resolveLimits(scope.Config.WorkspaceConfig.Limits)
+}
 
-// 	for {
-// 		if _, err := os.Stat(filepath.Join(dir, obj.WorkspaceFile)); err == nil {
-// 			Config.WorkspaceDir = dir
-// 			return nil
-// 		}
+func resolveLimits(limits obj.ResourceLimits) (obj.ResourceLimits, error) {
+	if limits.MaxDownloadBytes == 0 {
+		limits.MaxDownloadBytes = 512 << 20
+	}
+	if limits.MaxExtractBytes == 0 {
+		limits.MaxExtractBytes = 2 << 30
+	}
+	if limits.MaxArchiveEntries == 0 {
+		limits.MaxArchiveEntries = 10000
+	}
+	const maxInt64 = int64(1<<63 - 1)
+	if limits.MaxDownloadBytes < 0 || limits.MaxDownloadBytes == maxInt64 || limits.MaxExtractBytes < 0 || limits.MaxArchiveEntries < 0 {
+		return limits, fmt.Errorf("resource limits must be positive integers below the signed 64-bit maximum")
+	}
+	// Reserve bounded tar header/PAX overhead without overflowing the decoder's
+	// byte budget. File contents still share exactly MaxExtractBytes.
+	if limits.MaxExtractBytes > maxInt64-(1<<20)-1 || limits.MaxArchiveEntries > (maxInt64-limits.MaxExtractBytes-(1<<20)-1)/1024 {
+		return limits, fmt.Errorf("archive resource limits are too large")
+	}
+	return limits, nil
+}
 
-// 		dir = filepath.Dir(dir)
-// 		if dir == "/" {
-// 			return fmt.Errorf("%s file not found", obj.WorkspaceFile)
-// 		}
-// 	}
-// }
-
-func detectWorkspaceRoot() error {
-	startDir, err := os.Getwd()
+func (scope *Runtime) detectWorkspaceRoot() error {
+	dir, err := scope.WorkingDirectory()
 	if err != nil {
 		return err
 	}
-
-	dir := startDir
+	start := dir
 	for {
-		if isWorkspaceRoot(dir) {
-			Config.WorkspaceDir = dir
+		if scope.isWorkspaceRoot(dir) {
+			scope.Config.WorkspaceDir = dir
 			return nil
 		}
-
 		parent := filepath.Dir(dir)
-		if parent == dir { // reached root
+		if parent == dir {
 			break
 		}
 		dir = parent
 	}
-
-	return fmt.Errorf("%s file not found starting from %s", obj.WorkspaceFile, startDir)
+	return fmt.Errorf("%s file not found starting from %s", scope.Config.WorkspaceFile, start)
 }
 
-func isWorkspaceRoot(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, obj.WorkspaceFile))
-	return err == nil
+func (scope *Runtime) isWorkspaceRoot(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, scope.Config.WorkspaceFile))
+	return err == nil && info.Mode().IsRegular()
 }
 
-func InitRuntime(rulesDirOverride string) {
-	Config.ThirdPartyFiles = make(map[string]obj.ThirdPartyFileInfo)
-	Config.ThirdPartyFinalPaths = make(map[string]string)
-
-	err := detectWorkspaceRoot()
-	if err != nil {
-		fmt.Printf("Error detecting workspace root: %v\n", err)
-		os.Exit(1)
+func (scope *Runtime) InitRuntime(rulesDirOverride string) error {
+	if err := scope.LoadRuntime(rulesDirOverride); err != nil {
+		return err
 	}
-
-	workspaceConfig, err := readWorkspaceConfig(rulesDirOverride)
+	cache, err := scope.initCacheDir()
 	if err != nil {
-		fmt.Printf("Error reading workspace file: %v\n", err)
-		os.Exit(1)
+		return err
 	}
-
-	Config.WorkspaceConfig = workspaceConfig
-	Config.CacheDir = initCacheDir()
-	Config.Platform = runtime.GOOS + "_" + runtime.GOARCH
-
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	scope.Config.CacheDir = cache
+	return nil
 }
 
-func initCacheDir() string {
-	var tmpDir string
+func (scope *Runtime) LoadRuntime(rulesDirOverride string) error {
+	if scope.Config.WorkspaceFile == "" {
+		scope.Config.WorkspaceFile = "kamaji.workspace.yaml"
+	}
+	if err := scope.detectWorkspaceRoot(); err != nil {
+		return err
+	}
+	config, err := scope.readWorkspaceConfig(rulesDirOverride)
+	if err != nil {
+		return fmt.Errorf("read workspace: %w", err)
+	}
+	scope.Config.WorkspaceConfig = config
+	scope.Config.Platform = runtime.GOOS + "_" + runtime.GOARCH
+	scope.Config.ThirdPartyFiles = make(map[string]obj.ThirdPartyFileInfo)
+	scope.Config.ThirdPartyFinalPaths = make(map[string]string)
 
-	// Use the test's temporary directory if set
-	if Config.TmpDir != "" {
-		tmpDir = Config.TmpDir
-	} else {
-		// Determine the system-wide temporary directory
-		user, err := user.Current()
-		if err != nil {
-			fmt.Printf("Cannot determine current user, exiting\n")
-			os.Exit(1)
+	return nil
+}
+
+// DefaultTempDir computes the CLI's per-user cache location without creating it.
+func DefaultTempDir() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", fmt.Errorf("determine current user: %w", err)
+	}
+	var base string
+	switch runtime.GOOS {
+	case "darwin":
+		base = "/var/tmp"
+	case "linux":
+		base = "/tmp"
+	default:
+		return "", fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+	return filepath.Join(base, "_kamaji_"+u.Username), nil
+}
+
+func (scope *Runtime) initCacheDir() (string, error) {
+	if err := scope.EnsureTempDir(); err != nil {
+		return "", err
+	}
+	cache := filepath.Join(scope.Config.TmpDir, "cache")
+	for _, path := range []string{cache, filepath.Join(cache, "sha256")} {
+		if err := EnsurePrivateDir(path); err != nil {
+			return "", fmt.Errorf("create cache: %w", err)
 		}
-
-		tmpDir = map[string]string{
-			"darwin": fmt.Sprintf("/var/tmp/_kamaji_%s", user.Username),
-			"linux":  fmt.Sprintf("/tmp/_kamaji_%s", user.Username),
-		}[runtime.GOOS]
-
-		if tmpDir == "" {
-			fmt.Printf("Unsupported OS: %s\n", runtime.GOOS)
-			os.Exit(1)
-		}
-
-		Config.TmpDir = tmpDir
 	}
-
-	fmt.Printf("Attempting to create tmp dir: %s\n", tmpDir)
-
-	err := os.MkdirAll(tmpDir, 0755)
-	if err != nil {
-		fmt.Printf("Error creating tmp dir: %s\n", err.Error())
-		os.Exit(1)
-	}
-
-	cacheDir := filepath.Join(tmpDir, "cache")
-	fmt.Printf("Attempting to create cache dir: %s\n", cacheDir)
-
-	err = os.MkdirAll(cacheDir, 0755)
-	if err != nil {
-		fmt.Printf("Error creating cache dir: %s\n", err.Error())
-		os.Exit(1)
-	}
-
-	shaDir := filepath.Join(cacheDir, "sha256")
-	fmt.Printf("Attempting to create sha dir: %s\n", shaDir)
-
-	err = os.MkdirAll(shaDir, 0755)
-	if err != nil {
-		fmt.Printf("Error creating sha dir: %s\n", err.Error())
-		os.Exit(1)
-	}
-
-	return cacheDir
+	return cache, nil
 }

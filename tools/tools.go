@@ -3,23 +3,18 @@ package tools
 import (
 	"archive/zip"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"kamaji/obj"
-	"kamaji/rt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/h2non/filetype"
-	"golang.org/x/exp/rand"
 )
 
-var WorkspaceDir string
-
-func GetRule(target obj.ExecTarget) (string, error) {
+func (scope *Context) GetRule(target obj.ExecTarget) (string, error) {
 	if target.Rule == "" {
 		return "", fmt.Errorf("rule not found")
 	}
@@ -27,66 +22,42 @@ func GetRule(target obj.ExecTarget) (string, error) {
 	// if fist two chars of target.Rule are "//" we need to calculate the full path
 	// since // symbolizes the root of the workspace
 	if strings.HasPrefix(target.Rule, "//") {
-		return filepath.Join(rt.Config.WorkspaceConfig.WorkspaceRoot, target.Rule[2:]), nil
+		return filepath.Join(scope.Runtime.Config.WorkspaceConfig.WorkspaceRoot, target.Rule[2:]), nil
 	}
 
 	return target.Rule, nil
 }
 
 func CreateMetadataFile(cacheDir string, filePath string) error {
-	if rt.Config.DebugMode {
-		log.Printf("Creating metadata file for: %s\n", filePath)
-	}
 
 	metadataFilePath := filepath.Join(cacheDir, "metadata")
-	metadataFile, err := os.Create(metadataFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to create metadata file: %s", err.Error())
-	}
-	defer metadataFile.Close()
-
 	downloadedFilePath := filepath.Join(cacheDir, "file")
 	fileType, err := determineFileType(downloadedFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to determine file type: %s", err.Error())
 	}
 
-	switch fileType {
-	case "application/zip":
-		Unzip(filePath, cacheDir)
-	case "x-mach-binary":
-		mac_binary(filePath, cacheDir)
-		// TODO: add linux_binary
-	}
-
 	finalContent := fmt.Sprintf("%s,%s", filePath, fileType)
+	if current, err := os.ReadFile(metadataFilePath); err == nil && string(current) == finalContent {
+		return nil
+	}
+	metadataFile, err := os.CreateTemp(cacheDir, "metadata-*")
+	if err != nil {
+		return fmt.Errorf("create metadata: %w", err)
+	}
+	defer metadataFile.Close()
+	defer os.Remove(metadataFile.Name())
 	if _, err := metadataFile.WriteString(finalContent); err != nil {
 		return fmt.Errorf("failed to write metadata file: %s", err.Error())
 	}
 
-	if rt.Config.DebugMode {
-		log.Printf("Metadata file created: %s\n", metadataFilePath)
+	if err := metadataFile.Close(); err != nil {
+		return err
 	}
-	return nil
-}
-
-func mac_binary(filePath string, cacheDir string) error {
-	// in this case the file is a binary file, we just need to make executable
-	// after we copy it in the __TMP__ directory and rename it to the final name
-
-	binaryFilePath := filepath.Join(cacheDir, "__TMP__", "file")
-	if err := CopyFile(filePath, binaryFilePath); err != nil {
-		return fmt.Errorf("failed to copy file: %s", err.Error())
-	}
-	binaryFilePath = filepath.Join(cacheDir, "__TMP__", "file")
-
-	return nil
+	return os.Rename(metadataFile.Name(), metadataFilePath)
 }
 
 func determineFileType(filePath string) (string, error) {
-	if rt.Config.DebugMode {
-		log.Printf("Determining file type for: %s\n", filePath)
-	}
 
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -96,27 +67,25 @@ func determineFileType(filePath string) (string, error) {
 
 	// Read first 261 bytes for detection
 	buf := make([]byte, 261)
-	_, err = file.Read(buf)
+	n, err := file.Read(buf)
 	if err != nil {
-		log.Fatalf("Failed to read file: %v", err)
+		return "", fmt.Errorf("read file header: %w", err)
 	}
 
-	kind, unknown := filetype.Match(buf)
-	if unknown != nil {
-		if rt.Config.DebugMode {
-			log.Printf("Unknown file type for: %s\n", filePath)
-		}
-	} else {
-		if rt.Config.DebugMode {
-			log.Printf("File: %s, Type: %s, MIME: %s\n", filePath, kind.Extension, kind.MIME.Value)
-		}
+	kind, err := filetype.Match(buf[:n])
+	if err != nil {
+		return "", fmt.Errorf("detect file type: %w", err)
 	}
 	return kind.MIME.Value, nil
 }
 
 func IsFileValid(filePath, expectedSHA256 string) bool {
+	decoded, err := hex.DecodeString(expectedSHA256)
+	if err != nil || len(decoded) != sha256.Size {
+		return false
+	}
 	calculatedSHA256 := calculateSHA256(filePath)
-	return calculatedSHA256 == expectedSHA256
+	return calculatedSHA256 != "" && strings.EqualFold(calculatedSHA256, expectedSHA256)
 }
 
 func calculateSHA256(filePath string) string {
@@ -142,19 +111,43 @@ func NormalizeMap(input map[any]any) map[string]any {
 	output := make(map[string]any)
 	for key, value := range input {
 		strKey := fmt.Sprintf("%v", key) // Convert key to string
-		switch v := value.(type) {
-		case map[any]any: // Recursively normalize nested maps
-			output[strKey] = NormalizeMap(v)
-		default:
-			output[strKey] = v
-		}
+		output[strKey] = normalizeValue(value)
 	}
 	return output
 }
 
-func Unzip(src, dest string) error {
-	if rt.Config.DebugMode {
-		log.Printf("Unzipping file: %s into: %s\n", src, dest)
+func normalizeValue(value any) any {
+	switch v := value.(type) {
+	case map[any]any:
+		return NormalizeMap(v)
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, item := range v {
+			out[k] = normalizeValue(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = normalizeValue(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func (scope *Context) Unzip(src, dest string) error {
+	limits, err := scope.Runtime.EffectiveLimits()
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if info.Size() > limits.MaxDownloadBytes {
+		return fmt.Errorf("ZIP archive exceeds download byte limit")
 	}
 
 	r, err := zip.OpenReader(src)
@@ -162,24 +155,39 @@ func Unzip(src, dest string) error {
 		return err
 	}
 	defer r.Close()
+	if int64(len(r.File)) > limits.MaxArchiveEntries {
+		return fmt.Errorf("ZIP archive exceeds entry limit")
+	}
+	remaining := limits.MaxExtractBytes
+	for _, file := range r.File {
+		if file.UncompressedSize64 > uint64(remaining) {
+			return fmt.Errorf("ZIP archive exceeds extracted byte limit")
+		}
+		remaining -= int64(file.UncompressedSize64)
+	}
 
 	if err := os.MkdirAll(dest, os.ModePerm); err != nil {
 		return err
 	}
+	root, err := os.OpenRoot(dest)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 
 	for _, f := range r.File {
-		fpath := filepath.Join(dest, f.Name)
-		relPath, err := filepath.Rel(dest, fpath)
-		if err != nil || strings.HasPrefix(relPath, "..") {
-			return fmt.Errorf("illegal file path: %s", fpath)
+		if !filepath.IsLocal(f.Name) || f.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("illegal archive entry: %s", f.Name)
 		}
 
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(fpath, os.ModePerm)
+			if err := root.MkdirAll(f.Name, 0755); err != nil {
+				return err
+			}
 			continue
 		}
 
-		if err := extractFile(f, fpath); err != nil {
+		if err := extractFile(root, f); err != nil {
 			return err
 		}
 	}
@@ -187,12 +195,12 @@ func Unzip(src, dest string) error {
 	return nil
 }
 
-func extractFile(f *zip.File, fpath string) error {
-	if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+func extractFile(root *os.Root, f *zip.File) error {
+	if err := root.MkdirAll(filepath.Dir(f.Name), 0755); err != nil {
 		return err
 	}
 
-	outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+	outFile, err := root.OpenFile(f.Name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode().Perm())
 	if err != nil {
 		return err
 	}
@@ -204,11 +212,32 @@ func extractFile(f *zip.File, fpath string) error {
 	}
 	defer rc.Close()
 
-	if _, err := io.Copy(outFile, rc); err != nil {
+	if _, err := CopyWithLimit(outFile, rc, int64(f.UncompressedSize64)); err != nil {
 		return err
 	}
 
-	return nil
+	return outFile.Close()
+}
+
+// CopyWithLimit never writes more than limit bytes and checks one extra byte
+// from the input to distinguish an exact-size stream from an oversized one.
+func CopyWithLimit(dst io.Writer, src io.Reader, limit int64) (int64, error) {
+	if limit < 0 {
+		return 0, fmt.Errorf("invalid byte limit")
+	}
+	written, err := io.Copy(dst, io.LimitReader(src, limit))
+	if err != nil || written < limit {
+		return written, err
+	}
+	var probe [1]byte
+	n, err := io.ReadFull(src, probe[:])
+	if n != 0 {
+		return written, fmt.Errorf("stream exceeds configured byte limit")
+	}
+	if err != io.EOF {
+		return written, err
+	}
+	return written, nil
 }
 
 func CopyFile(src, dst string) error {
@@ -217,6 +246,16 @@ func CopyFile(src, dst string) error {
 		return err
 	}
 	defer srcFile.Close()
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+	if !srcInfo.Mode().IsRegular() {
+		return fmt.Errorf("source must be a regular file")
+	}
+	if dstInfo, err := os.Stat(dst); err == nil && os.SameFile(srcInfo, dstInfo) {
+		return fmt.Errorf("source and destination are the same file")
+	}
 
 	dstFile, err := os.Create(dst)
 	if err != nil {
@@ -228,86 +267,42 @@ func CopyFile(src, dst string) error {
 		return err
 	}
 
-	srcInfo, err := os.Stat(src)
-	if err != nil {
+	if err := dstFile.Close(); err != nil {
 		return err
 	}
 	return os.Chmod(dst, srcInfo.Mode())
 }
 
 func GetFullPath(cacheDir string, targetFileName string) string {
-	var targetPath string
-	filepath.Walk(cacheDir, func(path string, info os.FileInfo, err error) error {
+	if !filepath.IsLocal(targetFileName) {
+		return ""
+	}
+	if strings.ContainsAny(targetFileName, `/\`) {
+		path := filepath.Join(cacheDir, targetFileName)
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			return ""
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		base, baseErr := filepath.EvalSymlinks(cacheDir)
+		rel, relErr := filepath.Rel(base, resolved)
+		if err != nil || baseErr != nil || relErr != nil || !filepath.IsLocal(rel) {
+			return ""
+		}
+		return path
+	}
+	var matches []string
+	err := filepath.WalkDir(cacheDir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.Name() == targetFileName {
-			targetPath = path
-			return filepath.SkipDir
+		if entry.Type().IsRegular() && entry.Name() == targetFileName {
+			matches = append(matches, path)
 		}
 		return nil
 	})
-	return targetPath
-}
-
-func RandStringRunes(n int) string {
-	var letterRunes = []rune("abcdefghijklmnopqrstuvwxyz0123456789")
-	rand.Seed(uint64(time.Now().UnixNano()))
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+	if err != nil || len(matches) != 1 {
+		return ""
 	}
-	return string(b)
-}
-
-// MirrorDirectoryWithSymLinks mirrors the contents of the source directory under the target directory by creating symbolic links.
-// For files, a symlink is created from target to the original file.
-// For directories, a symlink is created from target to the entire source subdirectory, mirroring its entire content recursively.
-func MirrorDirectoryWithSymLinks(source string, target string) error {
-	// Get the absolute path for the source directory.
-	absSource, err := filepath.Abs(source)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path of source %s: %w", source, err)
-	}
-
-	// Ensure the source exists and is a directory.
-	sourceInfo, err := os.Stat(absSource)
-	if err != nil {
-		return fmt.Errorf("failed to stat source %s: %w", absSource, err)
-	}
-	if !sourceInfo.IsDir() {
-		return fmt.Errorf("source %s is not a directory", absSource)
-	}
-
-	// Ensure the target directory exists.
-	if err := os.MkdirAll(target, 0755); err != nil {
-		return fmt.Errorf("failed to create target directory %s: %w", target, err)
-	}
-
-	// Read the immediate entries of the source directory.
-	entries, err := os.ReadDir(absSource)
-	if err != nil {
-		return fmt.Errorf("failed to read directory %s: %w", absSource, err)
-	}
-
-	// For each entry, create a symlink in the target.
-	for _, entry := range entries {
-		srcPath := filepath.Join(absSource, entry.Name())
-		destPath := filepath.Join(target, entry.Name())
-
-		// Remove any pre-existing entry at the destination.
-		if _, err := os.Lstat(destPath); err == nil {
-			if err := os.RemoveAll(destPath); err != nil {
-				return fmt.Errorf("failed to remove existing entry at %s: %w", destPath, err)
-			}
-		}
-
-		// Create the symlink. Whether the entry is a file or a directory,
-		// a single symlink is created. In the latter case, the entire subdirectory is symlinked.
-		if err := os.Symlink(srcPath, destPath); err != nil {
-			return fmt.Errorf("failed to create symlink from %s to %s: %w", destPath, srcPath, err)
-		}
-	}
-
-	return nil
+	return matches[0]
 }

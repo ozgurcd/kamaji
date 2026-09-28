@@ -1,54 +1,79 @@
-# Kamaji 
+# Kamaji
 
-## Overview
+Kamaji is a Go CLI that runs YAML-defined targets through Python rules. It
+validates configuration, downloads checksum-pinned dependencies, prepares
+private execution files, and passes options and trailing arguments to a rule.
+Rules implement integrations with other tools; the Go core does not provide
+authentication or certify those integrations.
 
-Kamaji is a command-line tool designed to manage and execute targets defined in a YAML configuration file. Inspired by Bazel, Kamaji simplifies the execution of commands by providing a wrapper that handles configuration, authentication, and dependency management.
+## Build and start
 
-Kamaji is particularly useful for DevOps and infrastructure automation tasks, as it can integrate seamlessly with tools like Terraform, kubectl, helm and other CLI-based applications. It ensures consistent configuration across different targets while allowing customization using Python templates.
+The module requires Go 1.27.1. Runtime storage supports macOS and Linux.
+Python is needed to execute rules, but not to display help or list targets.
 
-Best example case is using Terraform as a target and passing credentials and configuration to the Terraform binary since it allows using different versions of Terraform for each directory in a Terraform configuration, removing the burden of updating all existing Terraform code when upgrading the version of Terraform.
+```sh
+make build
+./kamaji --help
+./kamaji version
+```
 
-## Why Use Kamaji?
+The current version is v0.1.0. `make build` embeds the version from `VERSION`;
+plain `go build` produces a development build reporting `dev`.
+Download platform binaries and checksums from the
+[v0.1.0 release](https://github.com/ozgurcd/kamaji/releases/tag/v0.1.0).
+See [Release builds](docs/RELEASING.md) for packaging and verification.
 
-1. **Simplified Execution**: Define reusable targets in a BUILD.yaml file and execute them without manually managing dependencies and configurations.
-2. **Configuration Management**: Inject authentication credentials and environment configurations automatically into CLI tools.
-3. **Python Extension Support**: Extend the functionality of Kamaji using Python templates for more flexible configurations.
-4. **Dependency Caching**: Caches third-party dependencies and ensures their integrity using sha256 checksums.
-5. **Secure and Consistent Execution**: Ensures that every execution runs in a separate directory in controlled environment with predefined configurations.
-6. **Automation-Friendly**: Useful for CI/CD pipelines and developer workflows that require consistent, reproducible command executions.
+From a new project directory, scaffold a minimal workspace and inspect it:
 
+```sh
+kamaji init
+kamaji targets
+kamaji validate hello
+kamaji run hello -- extra-argument
+```
 
-## Features
+`kamaji hello` is also supported. Use `--build` for another build file and `--`
+to separate Kamaji flags from arguments forwarded to the rule.
 
-- **Third-party Initialization**: Initializes third-party dependencies required by the build target.
-- **Python Extension**: Allows for extension and customization using Python templates, enabling flexible build configurations.
-- **Dependency Caching**: Caches third-party dependencies and ensures their integrity using sha256 checksums.
-- **Authentication and Configuration Injection**: Passes environment variables, authentication credentials and command line arguments to targets, ensuring secure execution of commands.
+## Core behavior
 
-## Usage
+- Strict YAML parsing rejects unknown fixed fields, duplicate keys/names, and
+  extra documents. Rule schemas enforce supported types, defaults, and required
+  values, with optional enums, numeric bounds, and unknown-option rejection.
+- Shared preflight, all-target validation, doctor, and redacted explain commands
+  help diagnose setup before execution. Target descriptions appear in listings
+  and shell completion.
+- Dependencies use platform-specific URLs and SHA256 digests. Cache publication
+  is atomic; cached payloads are verified before reuse.
+- Downloads default to 512 MiB; archive expansion defaults to 2 GiB of file data
+  and 10,000 members per archive. Workspace configuration can override these.
+- Execution directories are removed after ordinary completion or failure.
+  `--keep-execroot` enables debugging retention bounded by count and bytes.
+- `--isolated` runs in an independent working-directory copy. It is not an OS
+  sandbox: rules retain the user's permissions and inherited environment.
+- Cleanup coordinates with active runs. Python setup selects a new environment
+  only after setup succeeds; user-scoped installation and explicit requirements
+  are supported. Installation and removal share a lock.
+- Execution supports deadlines and graceful process-group cancellation, preserves
+  child exit codes, and restores foreground terminal ownership after interactive
+  children. Cache and retained-run inspection includes deletion previews.
 
-``bash
-kamaji <target>
-``
+## Documentation
 
-When you run `kamaji <target>`, it will execute the target with the given name. kamaji will look for a `BUILD.yaml` file in the current directory and execute the target specified in the `BUILD.yaml` file. BUILD.yaml file location can be specified using the `--build` flag.
+- [Usage and configuration](docs/HOW_TO_USE.md)
+- [CLI commands and flags](docs/CLI_REFERENCE.md)
+- [Commands, Python setup, cleanup, retention, and embedding](docs/RUNTIME_LIFECYCLE.md)
+- [Download and archive limits](docs/RESOURCE_LIMITS.md)
+- [Executor trust boundary](docs/EXECUTOR_SECURITY.md)
+- [Dependencies and YAML choice](docs/DEPENDENCIES.md)
+- [Tests and recorded validation](docs/TESTING.md)
+- [Review findings and implementation follow-up](docs/GENERAL_REVIEW.md)
+- [Repository-local wiki](wiki/index.md)
 
-``bash
-kamaji <target> --build <build_file>
-``
-Additionaly, kamaji provides a mechanism to pass additional arguments to the target binary or a script.
+Extension fixes remain outside the completed core work. Historical audits
+describe earlier trees and are labeled separately from current guides.
 
-``bash
-kamaji <target> -- <additional_arguments>
-``
-This will translate to executing the target command with the specified arguments.
+## Contributing and license
 
-## Contributing
-
-Contributions are welcome! Feel free to open an issue or submit a pull request.
-
-## License
-
-Kamaji is released under the MIT License.
-
-
+Run the checks in [Testing](docs/TESTING.md) when changing the core. Issues and
+pull requests are welcome. Kamaji is distributed under the [MIT License](LICENSE).

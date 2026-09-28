@@ -1,153 +1,213 @@
-# Getting Started with Kamaji
+# Using Kamaji
 
-This guide explains how to set up Kamaji for Terraform targets, covering key configuration files and instructions on creating custom rules.
+This guide describes the Go core. The example rule below is self-contained;
+bundled Terraform, kubeseal, and other extensions have separate behavior and
+were excluded from the recent core fixes.
 
----
+## A minimal workspace
 
-## 1. `kamaji.workspace.yaml`
+Run `kamaji init` in a new project directory to generate a complete minimal
+workspace. It refuses to overwrite existing files. The following manual example
+shows the same core layout. See [CLI reference](CLI_REFERENCE.md) for all commands.
 
-This file describes your global workspace configuration, including:
-- **rules_directory**: The location where your rules are stored.
-- **workspace_vars**: Shared variables for all targets (useful for passing variables to targets).
-- **third_party**: References to third-party dependencies such as Terraform or kubectl. Please note that Kamaji won't use the tools installed on your OS. Instead, it downloads the necessary tools from the URLs provided in the `third_party` section and verifies their SHA256 checksums. This approach ensures that you have the same version of tools across different machines while also guaranteeing their integrity and authenticity.
+Create this layout in your project:
 
-**Example**:
+```text
+kamaji.workspace.yaml
+BUILD.yaml
+rules/
+  hello/
+    rule.py
+    rule_definition.yaml
+```
+
+`kamaji.workspace.yaml`:
+
 ```yaml
----
 rules_directory: "//rules"
 workspace_vars:
   - org_domain: "example.com"
-    base_dir: "/projects/infra"
+```
+
+`BUILD.yaml`:
+
+```yaml
+targets:
+  - name: hello
+    description: Print a greeting
+    rule: hello/rule.py
+    config:
+      greeting: "Hello from Kamaji"
+```
+
+`rules/hello/rule_definition.yaml`:
+
+```yaml
+language: python
+description: Print a greeting and extra arguments
+allow_unknown: false
+variables:
+  greeting:
+    type: string
+    description: Greeting to print
+    default: Hello
+```
+
+`rules/hello/rule.py`:
+
+```python
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--greeting", required=True)
+parser.add_argument("extra", nargs="*")
+args = parser.parse_args()
+print(args.greeting)
+for value in args.extra:
+    print(value)
+```
+
+From that project directory, with Kamaji on PATH:
+
+```sh
+kamaji targets
+kamaji validate hello
+kamaji run hello -- extra-argument
+```
+
+`targets` prints sorted names and descriptions. `validate` shares non-mutating
+execution preflight, including interpreter availability, workspace prerequisites,
+rule/schema checks, and dependency references. It applies defaults in memory;
+it does not download, execute Python, or create runtime storage. It cannot check
+remote availability or certify rule behavior. Use `validate --all` for the whole
+build, `doctor` for readiness diagnostics, and `explain hello` for redacted
+resolved configuration. `run` executes the rule with the selected interpreter.
+The shorthand `kamaji hello` also works; use `run` when a target name matches
+a built-in command such as `version`.
+
+## Configuration and paths
+
+Kamaji searches the working directory and its parents for
+`kamaji.workspace.yaml`. The build file defaults to `BUILD.yaml` in the working
+directory, independently of where the workspace marker is found. Select another
+build file with `--build` (`-b`).
+
+`rules_directory` is resolved relative to the detected workspace. `//rules`
+also means the workspace's `rules` directory; absolute paths are accepted.
+`--rules-directory` overrides the workspace value. If omitted, the rules path
+is `/usr/local/share/kamaji/rules`.
+
+A target's relative `rule` path is relative to the rules directory.
+`//rules/hello/rule.py` resolves directly from the detected workspace; an
+absolute rule path is also accepted. Every rule requires a sibling
+`rule_definition.yaml`, even when its `variables` mapping is empty.
+
+`rules_common_directory` defaults to `common`, relative to the rules directory,
+or can be absolute. Kamaji sets PYTHONPATH to that location; it does not
+automatically import or invoke helper modules. Rules must do their own imports.
+
+Runs require at least one `workspace_vars` entry. The first entry's `org_domain`
+becomes KAMAJI_ORGANIZATION_DOMAIN. The recognized `base_dir` field does not
+change the child's working directory. `workspace_root` is recognized but is
+replaced by the detected workspace location; normally omit it.
+
+YAML files contain one document. Unknown fixed fields, duplicate mapping keys,
+duplicate target/dependency names, and unexpected types are errors. Omit a
+second `---` at the end of examples: it begins another document. Empty or missing
+optional user configuration is allowed. Use `true`/`false` for booleans; in
+dynamic option maps, `yes`, `no`, `on`, and `off` are strings.
+
+## Rule options and arguments
+
+The core checks each declared schema variable. Supported types are `string`,
+`int`, `bool`, `number`, `map`, and `list`, either as a type string or a mapping.
+Mappings accept `type`, `description`, `mandatory`, `default`, `enum`, `minimum`,
+and `maximum`; unknown schema-definition fields fail. Bounds apply only to
+numeric types and are inclusive. Enums must be nonempty lists of correctly typed
+values. Defaults must also satisfy the declared constraints.
+
+Defaults are inserted before execution. Missing mandatory values or mismatched
+types fail. Undeclared config options remain allowed by default; a rule can set
+top-level `allow_unknown: false` to reject them. The optional top-level
+`description` documents the rule, while `language` is metadata; execution still
+uses Python. Map/list types validate their outer type and JSON serializability,
+not a recursive item/property schema.
+
+For example, a variable can declare `type: int`, `minimum: 1`, `maximum: 8`,
+and `default: 2`; a string variable can use `enum: [fast, safe]`. Use descriptions
+for public help text, since they appear in explain output.
+
+Options are sorted and passed as individual `--name=value` arguments. Strings
+remain literal; other values, including maps and lists, are JSON encoded.
+Kamaji does not pass a Python dictionary or build a shell command. The rule
+must parse the arguments. Arguments after the CLI `--` separator are appended
+unchanged; Kamaji's separator itself is not forwarded.
+
+The child inherits the environment, with PWD, PYTHONPATH, and
+KAMAJI_ORGANIZATION_DOMAIN set for the run. Values in process arguments can be
+visible to process inspection. See [Executor security](EXECUTOR_SECURITY.md).
+
+## Third-party dependencies
+
+Add entries to the workspace's `third_party` list. Each entry has a unique
+`name`, a local `file_path`, and `url`/`sha256` mappings keyed by Go platform,
+such as `darwin_arm64` or `linux_amd64`.
+
+The following is a shape example, not a downloadable artifact. Replace the URL
+and digest with a trusted artifact and its actual SHA256 before use:
+
+```yaml
 third_party:
-  - name: terraform_1_9_0
-    ...
+  - name: example_tool
+    file_path: bin/example-tool
+    url:
+      linux_amd64: https://example.invalid/example-tool.tar.gz
+    sha256:
+      linux_amd64: "REPLACE_WITH_64_HEXADECIMAL_SHA256_CHARACTERS"
 ```
 
-Place this file in your workspace root (the top-level directory that Kamaji can access). Once you define a third-party tool, you can reference its name in your targets using the `@@` syntax. Please note that Kamaji will attempt to download the version that matches the OS and architecture of the machine on which it is running.
+Reference the name as a top-level target config string, for example
+`tool: "@@example_tool"`. Kamaji substitutes the prepared artifact's absolute
+path. It does not search PATH for an `@@` dependency. Nested map/list references
+are not expanded. Dependencies must declare an HTTP(S) URL and valid digest for
+the current platform, even when a verified payload is already cached;
+the checksum establishes agreement with your configuration, not publisher
+authenticity or program safety.
 
-**Example**:
-```yaml
----
-targets:
-  - name: "staging"
-    rule: "run_terraform/run_terraform.py"
-    config:
-      terraform_executable: "@@terraform_1_10_5"
----
-```
+ZIP, gzip-compressed tar, Mach-O, and ELF payloads are supported. Downloads and
+archive extraction are bounded; see [Resource limits](RESOURCE_LIMITS.md).
+Repeated references within an invocation are initialized once. Archive
+extraction remains private to each execution.
 
-## 2. `BUILD.yaml` for Terraform
+## Python, installation, and debugging
 
-Within a Terraform directory, create a `BUILD.yaml` file that defines the targets (such as "staging" or "production"):
-```yaml
----
-targets:
-  - name: "staging"
-    rule: "run_terraform/run_terraform.py"
-    config:
-      terraform_executable: "@@terraform_1_10_5"
-      terraform_workspace: "staging"
-      ...
-```
-- **rule**: Points to the Python script that handles Terraform tasks (`run_terraform.py`).
-- **config**: Provides any necessary parameters (e.g., which Terraform version to use, region, workspace name, etc.). The definition of this configuration is determined by the Python script and is specified in the rule directory's `rule_definition.yaml` file.
+Select Python with `--python` (`-p`), KAMAJI_PYTHON, or `python` in the optional
+`~/.kamaji/config.yaml`, in that order. Otherwise Kamaji selects its managed
+environment, a legacy executable `venv/bin/python`, or `python3`. An unreadable
+or malformed user file is an error, even with an explicit interpreter override.
 
-This configuration is passed to the Python script as a dictionary. If the provided configuration does not match the expected format, the Python script will raise an error.
+`rules-directory-create` installs the current directory's `rules` and optional
+`requirements.txt` under `/usr/local/share/kamaji`; it needs write permission
+there. `rules-directory-delete` removes the installed rules and requirements.
+Add `--user` to use `~/.local/share/kamaji`, or `--install-root` to choose another
+installation. Use the same scope for setup and for target commands that rely on
+the default installed rules path.
+`setup-python-env` creates a managed environment and installs the installed
+requirements file when present; this command can invoke pip/network access.
+It does not install the current workspace's requirements automatically.
+Pass `--requirements requirements.txt` to setup to select that file explicitly.
 
----
+`--isolated` (`-i`) copies the working directory for the child and rejects
+source symlinks/special files. By default, the child runs in the original working
+directory. Rules retain user permissions in either mode.
 
-## 3. Rules Directory Overview
+Normal execution files are removed afterward. Use `--keep-execroot` for bounded
+debugging retention and `--cleanup` without a target to remove caches and
+execution files. See [Runtime lifecycle](RUNTIME_LIFECYCLE.md) for storage paths,
+limits, locks, and Python promotion behavior.
 
-Kamaji searches the `rules` directory for Python scripts to execute. An example structure:
-```
-├─ rules
-│   └─ run_terraform
-│       ├─ run_terraform.py
-│       └─ rule_definition.yaml
-├─ common
-│   └─ terraform.py
-```
-
-- **run_terraform.py**: The entry script run by Kamaji. It typically imports shared logic from `terraform.py`.
-- **terraform.py**: A helper module (located in the `common` directory) that manages command construction, environment setup, etc.
-- **rule_definition.yaml**: A file that defines the expected configuration for the rule, including default values.
-
-In addition, there is a `common` directory that contains shared logic for all rules. When Kamaji runs a target referencing `run_terraform/run_terraform.py`, it automatically loads the `terraform.py` file from the `common` directory to handle Terraform CLI commands.
-
----
-
-## 4. Example: `run_terraform.py` and `terraform.py`
-
-**run_terraform.py** (entry point):
-```python
-# run_terraform.py
-import sys
-import terraform
-
-def main():
-    args = sys.argv[1:]
-    terraform.run_terraform(args)
-
-if __name__ == "__main__":
-    main()
-```
-
-**terraform.py** (common helpers):
-```python
-# terraform.py
-def run_terraform(args):
-    # Build a Terraform command and run it
-    cmd = ["terraform"] + args
-    # Add any additional logic or environment variables as needed...
-```
-
----
-
-## 5. Creating New Rules
-
-To add a new rule:
-1. Create a new directory under `rules` containing a Python file (e.g., `rules/new_rule/my_rule.py`).
-2. Write a `main()` function that utilizes the shared logic available in the `common` directory or from other installed libraries.
-3. In your `BUILD.yaml`, reference `"new_rule/my_rule.py"` under `rule`.
-
-Example minimal new rule:
-```python
-# my_rule.py
-def main():
-    print("Running a custom rule")
-
-if __name__ == "__main__":
-    main()
-```
-
-Update your `BUILD.yaml` accordingly:
-```yaml
-targets:
-  - name: "my_custom_target"
-    rule: "new_rule/my_rule.py"
-    config:
-      some_key: "some_value"
-```
-
-You can now run:
-```
-kamaji my_custom_target
-```
-
----
-
-## 6. `//` Notation
-
-The `//` notation is used to reference the root of the workspace. It is equivalent to the workspace root directory, i.e., the directory where the `kamaji.workspace.yaml` file is located.
-
-**Example**:
-```yaml
----
-targets:
-  - name: "my_custom_target"
-    rule: "//rules/new_rule/my_rule.py"
-    config:
-      some_key: "some_value"
----
-```
-
+Use `--timeout 5m` to set an execution deadline and `--kill-after 2s` to control
+the graceful termination interval. Child exit codes are preserved. Inspect
+retained files with `runs list`/`runs show`, and downloads with `cache status`.
+`cache prune` and `cache clean` support `--dry-run`; see
+[CLI reference](CLI_REFERENCE.md#inspect-and-clean-storage).

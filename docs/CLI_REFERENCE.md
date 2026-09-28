@@ -1,6 +1,8 @@
 # CLI reference
 
-Commands below describe v0.1.0. Release builds and `make build` report `v0.1.0`;
+Commands below describe v0.2.0, including generic language execution.
+See [Rule languages](RULE_LANGUAGES.md).
+Release builds and `make build` report the value in `VERSION` (currently `v0.2.0`);
 plain `go build` produces a development build reporting `dev`.
 
 ## Start and inspect a project
@@ -18,7 +20,7 @@ through Cobra's `completion` command. Completion reads only the build file.
 `kamaji validate hello` and `kamaji validate --all` share non-mutating preflight
 checks with execution. They check user/workspace/build configuration, schema
 constraints, the required workspace organization entry, working directory,
-interpreter lookup, rule file, option names, and selected dependency paths,
+the configured interpreter or executable, rule file, option names, and selected dependency paths,
 SHA256 syntax, and HTTP(S) URLs. The all-target form reports each target's
 result and returns failure if any target fails. Common configuration failures
 stop validation before target checks. It makes no network requests and creates
@@ -29,8 +31,9 @@ checks the whole build file. Neither command executes/imports a rule, checks
 Python package installation, verifies remote availability, or guarantees that
 later filesystem/network operations will succeed.
 
-`kamaji explain hello` shows resolved workspace/build/rule paths, interpreter
-selection and its source, rule/target descriptions, effective resource limits,
+`kamaji explain hello` shows resolved workspace/build/rule paths, language,
+execution mode and executable, Python selection provenance when applicable,
+rule/target descriptions, effective resource limits,
 runtime location, option provenance, and referenced dependency cache status.
 `--isolated` describes working-copy execution instead of the run default.
 `--json` emits structured output. All option values are redacted, including
@@ -47,7 +50,8 @@ built-in commands. Arguments after `--` retain their boundaries.
 Target execution, validation, doctor, and explain accept:
 
 - `--build`, `-b`: build file, default `BUILD.yaml` in the working directory.
-- `--python`, `-p`: explicit interpreter; selection precedence is documented in
+- `--python`, `-p`: interpreter for implicit Python rules only; an explicit
+  rule execution command takes precedence. Selection precedence is documented in
   [Usage](HOW_TO_USE.md#python-installation-and-debugging).
 - `--rules-directory`: override the workspace rules path.
 - `--user`: use `~/.local/share/kamaji` for the default rules installation and

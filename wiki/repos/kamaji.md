@@ -5,14 +5,16 @@ co_versioned: true
 # Kamaji repository
 
 This repository owns its wiki. It does not use the parent Development wiki.
-This page is co-versioned with the Kamaji source. The v0.1.0 release includes
-the core audit fixes and usability improvements described below. See the
-[release notes](../../docs/RELEASE-v0.1.0.md) and
+This page is co-versioned with the Kamaji source. The v0.2.0 release adds generic
+language support and runnable examples to the core fixes and usability improvements
+from v0.1.0. See the [release notes](../../RELEASE_NOTES.md) and
 [release build guide](../../docs/RELEASING.md).
 
 ## Current core
 
-Kamaji executes YAML-defined targets through Python rules. Start with
+The current source tree executes YAML-defined targets through configured
+interpreters or compiled executables, including Go, starting with v0.2.0. The
+older v0.1.0 release remains Python-only. Start with
 [README](../../README.md) and the complete [usage example](../../docs/HOW_TO_USE.md).
 The current implementation includes:
 
@@ -34,6 +36,11 @@ The current implementation includes:
   extended schemas with optional unknown-option rejection.
 
 [CLI reference](../../docs/CLI_REFERENCE.md) describes command syntax and limits.
+[Rule languages](../../docs/RULE_LANGUAGES.md) defines the execution contract and Go example.
+[Runnable examples](../../docs/EXAMPLES.md) includes a Go greeting and a release
+workflow with Python inventory, compiled Go verification, Ruby policy checks,
+and JavaScript reporting. The workflow is explicitly sequenced by the caller;
+Kamaji does not infer target dependencies.
 
 [Runtime lifecycle](../../docs/RUNTIME_LIFECYCLE.md),
 [resource limits](../../docs/RESOURCE_LIMITS.md), and
@@ -66,3 +73,4 @@ tests when the implementation changes.
 | Date | Revision | Slice |
 | --- | --- | --- |
 | 2026-09-28 | co-versioned | Core fixes, usability improvements, documentation and v0.1.0 packaging. |
+| 2026-09-29 | co-versioned | Generic rule execution, Go support, multilingual examples and v0.2.0 packaging. |

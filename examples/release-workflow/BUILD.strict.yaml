@@ -1,0 +1,8 @@
+targets:
+  - name: policy
+    description: Demonstrate a rejected release with a one-byte budget
+    rule: policy/rule.rb
+    config:
+      required_files: [inputs/app.txt, inputs/README.txt]
+      max_total_bytes: 1
+      fail_on_empty: true

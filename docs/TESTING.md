@@ -12,11 +12,11 @@ The module requires Go 1.27.1. There is no repository Makefile verification
 target or configured Legattus project.
 
 The latest recorded full check is the
-[v0.1.0 release verification](#v010-release-verification--2026-09-28)
-below: 82.7% statement coverage. The preceding implementation's source census contains 114 top-level tests
-(113 in the default suite and one tagged terminal integration test) and 505
-static assertion/guard sites (504 default, one integration), under the predicates
-stated there. Earlier sections retain measurements of earlier trees; their
+[generic rule execution validation](#generic-rule-execution-validation--2026-09-29)
+below: 82.5% statement coverage, including the example Go program. Its source
+census contains 121 top-level tests (120 default and one tagged terminal
+integration test) and 557 static assertion/guard sites (556 default, one
+integration), under the predicate stated there. Earlier sections retain measurements of earlier trees; their
 percentages and test populations are not current totals.
 
 The current executor review and its trust boundary are documented in
@@ -366,3 +366,238 @@ reads and error returns, as recorded in the locally ignored gograph report.
 No Legattus project or wiki postcheck target exists in this repository; these
 checks do not certify extension behavior, other-platform runtime behavior or
 binary signing/notarization.
+
+## Generic rule execution validation — 2026-09-29
+
+The complete command `go test ./... -count=1 -race
+-coverprofile=.audit/generic-rules.cover` passed:
+
+```text
+ok  kamaji                          2.342s   coverage: 100.0% of statements
+ok  kamaji/cmd                      1.475s   coverage: 85.0% of statements
+ok  kamaji/config                   1.214s   coverage: 94.1% of statements
+    kamaji/examples/go-rule/rules/hello     coverage: 0.0% of statements
+ok  kamaji/execroot                 1.327s   coverage: 82.2% of statements
+ok  kamaji/internal/fsutil          2.263s   coverage: 48.3% of statements
+ok  kamaji/internal/process         1.692s   coverage: 62.3% of statements
+?   kamaji/obj                      [no test files]
+ok  kamaji/rt                       1.428s   coverage: 78.8% of statements
+ok  kamaji/runner                  11.551s   coverage: 86.0% of statements
+ok  kamaji/target                   2.478s   coverage: 88.3% of statements
+ok  kamaji/tools                    1.282s   coverage: 87.8% of statements
+ok  kamaji/utils                    1.242s   coverage: 74.4% of statements
+```
+
+`go tool cover -func=.audit/generic-rules.cover` reported 82.5% aggregate
+statement coverage. The example program was built and executed separately;
+that manual execution is not included in the coverage profile. The previous
+release profile was 82.7% on the smaller tree.
+
+New test files:
+
+- `target/language_test.go`: default/alias languages, open-ended language labels,
+  explicit execution modes, command validation and strict nested YAML fields.
+- `runner/go_rules_test.go`: compiled Go subprocesses with no Python, scalar and
+  structured options, trailing argument boundaries, inherited environment,
+  isolation, preserved child failures, deadlines and cleanup.
+- `runner/generic_rules_test.go`: custom interpreted and direct executable
+  modes, fixed interpreter arguments and relative interpreter resolution before
+  changing the child's directory.
+- `cmd/go_rules_test.go`: run/validate/doctor/explain without loading Python
+  configuration or looking up Python; defaults and native diagnostics.
+- `cmd/generic_rules_test.go`: mixed-language validation, Python compatibility,
+  custom interpreter diagnostics, redaction and rejection of invalid rules
+  before runtime writes.
+
+`runner/runner_test.go` now supplies a default schema alongside Python fixtures;
+direct executor callers must provide schemas just like CLI callers. All
+previous Python tests passed. Expected failing regressions preceded both the
+Go dispatch implementation and its generalization to execution modes.
+
+The census used `ast-grep run --lang go --kind function_declaration` and
+`--kind call_expression`, JSON output, `--globs '*_test.go'`, and the roots
+`main_test.go cmd config execroot internal rt runner target tools utils`.
+It counted top-level declarations starting `func Test` excluding `TestMain`,
+and call nodes starting `t.Fatal(`, `t.Fatalf(`, `t.Error(` or `t.Errorf(`.
+This includes helper test entrypoints and fixture guards, counts table-driven
+sites once, and excludes scratch files and dependencies. It measured 121 tests
+and 557 assertion/guard sites, versus the previously recorded 114 and 505.
+The unchanged tagged terminal test contributes one test and one guard site.
+
+`make build`, Linux AMD64 cross-build, `go vet ./...`, `staticcheck ./...`,
+`go mod verify`, documentation link checks and `git diff --check` passed.
+The Go example compiled, printed the documented greetings, and passed CLI
+validation/explanation with KAMAJI_PYTHON pointing to a nonexistent executable.
+Its binary is ignored. No Go module dependency changed.
+
+Generic interpreter tests use a harmless Go helper process to observe the
+process contract; they do not certify installed Node, Ruby, Java or other
+language environments. No extension or real infrastructure operation ran.
+The existing process implementation and tagged terminal test were unchanged;
+the interactive terminal ceremony was not repeated for this dispatch change.
+
+Gograph precise build and final uncommitted review passed. One intermediate
+build refused publication because source changed during indexing; it was
+rebuilt after edits stopped. Some review summaries still report undetected
+environment reads/error returns; source and executable tests establish those
+behaviors instead.
+
+## Multilingual examples verification — 2026-09-29
+
+The runnable [examples guide](EXAMPLES.md) adds a release workflow with Python
+inventory, compiled Go verification, Ruby policy checks, and JavaScript
+reporting. No core implementation or dependency changed in this examples slice.
+
+The new test file is `examples/release-workflow/workflow_test.go`, tagged
+`integration`. Its first run failed because `BUILD.yaml` had not been created.
+After adding the workflow, the final focused command was:
+
+```sh
+go test -tags=integration ./examples/release-workflow -run '^TestReleaseWorkflow$' -count=1 -v
+```
+
+```text
+=== RUN   TestReleaseWorkflow
+Inventoried 2 files -> out/inventory.json
+Verified 2 files and expected metadata
+Policy passed: 2 files, 78 bytes
+Wrote out/report.md
+Policy rejected: total bytes exceed budget
+Wrote out/report.md
+verify: size or SHA256 mismatch for "inputs/app.txt"
+--- PASS: TestReleaseWorkflow (0.64s)
+PASS
+ok  kamaji/examples/release-workflow  1.203s
+```
+
+This exercises real local interpreters and a freshly compiled Go executable
+through `cmd.NewCommand`, with workspace and runtime storage in separate
+temporary directories. It checks validation, native Go explanation, the report,
+preservation of policy exit code 3, a same-length content mutation rejected by
+Go, and isolated output retained without changing the original report. User
+Python configuration is replaced by a callback that fails if accessed. The test
+skips with a reason when a required language runtime is unavailable. This run
+used all required runtimes and did not skip.
+
+The complete default suite also passed:
+
+```sh
+go test ./... -count=1 -race -coverprofile=.audit/multilingual-examples.cover
+```
+
+```text
+ok  kamaji                          2.384s  coverage: 100.0% of statements
+ok  kamaji/cmd                      1.526s  coverage: 85.0% of statements
+ok  kamaji/config                   1.300s  coverage: 94.1% of statements
+    kamaji/examples/go-rule/rules/hello           coverage: 0.0% of statements
+    kamaji/examples/release-workflow/rules/verify coverage: 0.0% of statements
+ok  kamaji/execroot                 1.484s  coverage: 82.2% of statements
+ok  kamaji/internal/fsutil          2.302s  coverage: 48.3% of statements
+ok  kamaji/internal/process         1.738s  coverage: 62.3% of statements
+?   kamaji/obj                      [no test files]
+ok  kamaji/rt                       1.339s  coverage: 78.8% of statements
+ok  kamaji/runner                  11.133s  coverage: 86.0% of statements
+ok  kamaji/target                   2.519s  coverage: 88.3% of statements
+ok  kamaji/tools                    1.328s  coverage: 87.8% of statements
+ok  kamaji/utils                    1.327s  coverage: 74.4% of statements
+```
+
+`go tool cover -func=.audit/multilingual-examples.cover` reports 80.6% aggregate
+statement coverage, compared with 82.5% on the preceding tree. The default
+profile includes the new example executable as uncovered code; its execution
+in the separate integration command is not instrumented in this profile.
+
+The AST census uses the preceding section's predicate and adds `examples` to
+the scanned roots. It measures 122 `Test*` declarations and 576 static
+assertion/guard sites, compared with 121 and 557 before this slice. The new
+integration test contributes one declaration and 19 sites. The default-build
+subset remains 120/556; tagged tests contribute 2/20 to the combined 122/576.
+The test-file inventory is the earlier release inventory plus the five generic
+execution test files listed above and `examples/release-workflow/workflow_test.go`.
+
+`go build ./...`, `staticcheck ./...`, and
+`staticcheck -tags=integration ./examples/release-workflow` passed. Precise
+gograph indexing with integration tags and post-edit review passed. Its static
+review does not connect the child executable to the integration test and still
+reports `Error returns: none detected` for the verifier despite its explicit
+error paths; executable assertions establish the behavior. No bundled extension,
+cloud operation, or interactive terminal test was run for this examples slice.
+
+## v0.2.0 release verification — 2026-09-29
+
+Release preparation changed version metadata, documentation, and archive packaging;
+it did not change Go source or tests after the example verification above.
+The complete release test command passed:
+
+```sh
+go test ./... -count=1 -race -coverprofile=.audit/release-v0.2.0.cover
+```
+
+```text
+ok  kamaji                          2.488s  coverage: 100.0% of statements
+ok  kamaji/cmd                      1.680s  coverage: 85.0% of statements
+ok  kamaji/config                   1.377s  coverage: 94.1% of statements
+    kamaji/examples/go-rule/rules/hello           coverage: 0.0% of statements
+    kamaji/examples/release-workflow/rules/verify coverage: 0.0% of statements
+ok  kamaji/execroot                 1.456s  coverage: 82.2% of statements
+ok  kamaji/internal/fsutil          2.381s  coverage: 48.3% of statements
+ok  kamaji/internal/process         1.821s  coverage: 62.3% of statements
+?   kamaji/obj                      [no test files]
+ok  kamaji/rt                       1.605s  coverage: 78.8% of statements
+ok  kamaji/runner                  10.695s  coverage: 86.0% of statements
+ok  kamaji/target                   2.646s  coverage: 88.3% of statements
+ok  kamaji/tools                    1.537s  coverage: 87.8% of statements
+ok  kamaji/utils                    1.475s  coverage: 74.4% of statements
+```
+
+The separate command `go test -tags=integration ./examples/release-workflow
+-run '^TestReleaseWorkflow$' -count=1 -v` exercised the real language runtimes:
+
+```text
+=== RUN   TestReleaseWorkflow
+Inventoried 2 files -> out/inventory.json
+Verified 2 files and expected metadata
+Policy passed: 2 files, 78 bytes
+Wrote out/report.md
+Policy rejected: total bytes exceed budget
+Wrote out/report.md
+verify: size or SHA256 mismatch for "inputs/app.txt"
+--- PASS: TestReleaseWorkflow (0.95s)
+PASS
+ok  kamaji/examples/release-workflow  1.433s
+```
+
+The terminal test was compiled with `go test -tags=integration -c
+-o .audit/release-v0.2.0-terminal.test ./internal/process`, then run in a PTY
+with `-test.run '^TestTerminalInteraction$' -test.v` and synthetic input `hello`:
+
+```text
+=== RUN   TestTerminalInteraction
+terminal ready
+hello
+--- PASS: TestTerminalInteraction (11.92s)
+PASS
+```
+
+`make build`, `make release-assets`, `go vet ./...`, `staticcheck ./...`, and
+`go mod verify` passed. `govulncheck ./...` reported `No vulnerabilities found.`
+Native and packaged macOS ARM64 version commands returned `v0.2.0` and
+`kamaji version v0.2.0`. Executable-format inspection confirmed macOS/Linux
+AMD64/ARM64 outputs. Other-platform runtime behavior was not exercised.
+
+An initial archive assertion failed because macOS tar included AppleDouble
+`._kamaji` and `._LICENSE` metadata members, which its own default listing hid.
+After the owner authorized continuation, packaging was corrected with
+`COPYFILE_DISABLE=1`. The rebuilt archives all passed SHA256 comparison against
+`SHA256SUMS` and Python tarfile inspection requiring exactly `kamaji` and
+`LICENSE`, both regular files, with execute bits on `kamaji`. The macOS ARM64
+packaged version check passed again. Local Markdown link targets and
+`git diff --check` passed.
+
+The test-file inventory and the preceding 122-test/576-site census are unchanged;
+no new census is claimed for release preparation. Gograph precise indexing,
+uncommitted plan, and review passed. Its broad uncommitted review includes
+unchanged symbols and under-detects environment reads/error returns, so Git's
+manifest and executable tests establish scope and behavior. No Legattus project
+or repository-local wiki postcheck target exists here. The untracked kubeseal
+extension and ignored local findings/artifacts remain outside the release commit.

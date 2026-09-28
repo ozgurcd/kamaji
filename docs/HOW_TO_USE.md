@@ -4,6 +4,10 @@ This guide describes the Go core. The example rule below is self-contained;
 bundled Terraform, kubeseal, and other extensions have separate behavior and
 were excluded from the recent core fixes.
 
+For complete checked-in Go examples and a workflow combining Python, Go, Ruby,
+and JavaScript, see [Runnable rule examples](EXAMPLES.md). It covers structured
+options, file verification, policy failures, report generation, and isolation.
+
 ## A minimal workspace
 
 Run `kamaji init` in a new project directory to generate a complete minimal
@@ -81,7 +85,8 @@ rule/schema checks, and dependency references. It applies defaults in memory;
 it does not download, execute Python, or create runtime storage. It cannot check
 remote availability or certify rule behavior. Use `validate --all` for the whole
 build, `doctor` for readiness diagnostics, and `explain hello` for redacted
-resolved configuration. `run` executes the rule with the selected interpreter.
+resolved configuration. `run` executes the rule with the selected interpreter
+or launches its compiled executable directly.
 The shorthand `kamaji hello` also works; use `run` when a target name matches
 a built-in command such as `version`.
 
@@ -103,7 +108,7 @@ absolute rule path is also accepted. Every rule requires a sibling
 `rule_definition.yaml`, even when its `variables` mapping is empty.
 
 `rules_common_directory` defaults to `common`, relative to the rules directory,
-or can be absolute. Kamaji sets PYTHONPATH to that location; it does not
+or can be absolute. For rules labeled Python, Kamaji sets PYTHONPATH to that location; it does not
 automatically import or invoke helper modules. Rules must do their own imports.
 
 Runs require at least one `workspace_vars` entry. The first entry's `org_domain`
@@ -129,8 +134,10 @@ values. Defaults must also satisfy the declared constraints.
 Defaults are inserted before execution. Missing mandatory values or mismatched
 types fail. Undeclared config options remain allowed by default; a rule can set
 top-level `allow_unknown: false` to reject them. The optional top-level
-`description` documents the rule, while `language` is metadata; execution still
-uses Python. Map/list types validate their outer type and JSON serializability,
+`description` documents the rule. `language: go` selects a compiled executable;
+omitted language keeps Python behavior. An optional `execution` block selects
+an interpreter command or direct executable mode for any language. See
+[Rule languages](RULE_LANGUAGES.md). Map/list types validate their outer type and JSON serializability,
 not a recursive item/property schema.
 
 For example, a variable can declare `type: int`, `minimum: 1`, `maximum: 8`,
@@ -143,8 +150,9 @@ Kamaji does not pass a Python dictionary or build a shell command. The rule
 must parse the arguments. Arguments after the CLI `--` separator are appended
 unchanged; Kamaji's separator itself is not forwarded.
 
-The child inherits the environment, with PWD, PYTHONPATH, and
-KAMAJI_ORGANIZATION_DOMAIN set for the run. Values in process arguments can be
+The child inherits the environment, with PWD and
+KAMAJI_ORGANIZATION_DOMAIN set for the run; rules labeled Python also receive
+the configured PYTHONPATH. Values in process arguments can be
 visible to process inspection. See [Executor security](EXECUTOR_SECURITY.md).
 
 ## Third-party dependencies
@@ -181,7 +189,7 @@ extraction remains private to each execution.
 
 ## Python, installation, and debugging
 
-Select Python with `--python` (`-p`), KAMAJI_PYTHON, or `python` in the optional
+For implicit Python execution, select Python with `--python` (`-p`), KAMAJI_PYTHON, or `python` in the optional
 `~/.kamaji/config.yaml`, in that order. Otherwise Kamaji selects its managed
 environment, a legacy executable `venv/bin/python`, or `python3`. An unreadable
 or malformed user file is an error, even with an explicit interpreter override.

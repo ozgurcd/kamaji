@@ -15,6 +15,9 @@ import (
 )
 
 type explanation struct {
+	ExecutionMode    string                       `json:"execution_mode"`
+	Language         string                       `json:"language"`
+	Executable       string                       `json:"executable"`
 	RuleDescription  string                       `json:"rule_description,omitempty"`
 	Target           string                       `json:"target"`
 	Description      string                       `json:"description,omitempty"`
@@ -22,8 +25,8 @@ type explanation struct {
 	Workspace        string                       `json:"workspace"`
 	BuildFile        string                       `json:"build_file"`
 	Rule             string                       `json:"rule"`
-	Python           string                       `json:"python"`
-	PythonSource     string                       `json:"python_source"`
+	Python           string                       `json:"python,omitempty"`
+	PythonSource     string                       `json:"python_source,omitempty"`
 	Isolation        string                       `json:"isolation"`
 	RuntimeDirectory string                       `json:"runtime_directory"`
 	Limits           obj.ResourceLimits           `json:"limits"`
@@ -75,7 +78,7 @@ func (a *application) explain(c *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	python, err := a.executor.Interpreter()
+	program, err := a.executor.Program(selected)
 	if err != nil {
 		return err
 	}
@@ -83,7 +86,10 @@ func (a *application) explain(c *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	report := explanation{Target: selected.Name, Description: selected.Description, WorkingDirectory: cwd, Workspace: a.runtime.Config.WorkspaceDir, BuildFile: buildPath, Rule: rule, Python: python, PythonSource: a.pythonSource, Isolation: "off (run default; --isolated enables a working copy)", RuntimeDirectory: a.runtime.Config.TmpDir, Limits: limits, Options: map[string]optionExplanation{}, Dependencies: []dependencyExplanation{}}
+	report := explanation{ExecutionMode: program.Mode, Language: program.Language, Executable: program.Executable, Target: selected.Name, Description: selected.Description, WorkingDirectory: cwd, Workspace: a.runtime.Config.WorkspaceDir, BuildFile: buildPath, Rule: rule, Isolation: "off (run default; --isolated enables a working copy)", RuntimeDirectory: a.runtime.Config.TmpDir, Limits: limits, Options: map[string]optionExplanation{}, Dependencies: []dependencyExplanation{}}
+	if program.ManagedPython {
+		report.Python, report.PythonSource = program.Executable, a.pythonSource
+	}
 	report.RuleDescription = schema.Description
 	if a.isolated {
 		report.Isolation = "on (independent working copy; not a sandbox)"
@@ -141,7 +147,10 @@ func (a *application) explain(c *cobra.Command, args []string) error {
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(report)
 	}
-	c.Printf("Target: %s\nDescription: %s\nWorkspace: %s\nWorking directory: %s\nBuild file: %s\nRule: %s\nPython: %s (%s)\nIsolation: %s\nRuntime directory: %s\nLimits: download=%d bytes, extraction=%d bytes, archive entries=%d\n", report.Target, report.Description, report.Workspace, cwd, buildPath, rule, python, report.PythonSource, report.Isolation, report.RuntimeDirectory, limits.MaxDownloadBytes, limits.MaxExtractBytes, limits.MaxArchiveEntries)
+	c.Printf("Target: %s\nDescription: %s\nWorkspace: %s\nWorking directory: %s\nBuild file: %s\nRule: %s\nLanguage: %s\nExecution mode: %s\nExecutable: %s\nIsolation: %s\nRuntime directory: %s\nLimits: download=%d bytes, extraction=%d bytes, archive entries=%d\n", report.Target, report.Description, report.Workspace, cwd, buildPath, rule, program.Language, program.Mode, program.Executable, report.Isolation, report.RuntimeDirectory, limits.MaxDownloadBytes, limits.MaxExtractBytes, limits.MaxArchiveEntries)
+	if program.ManagedPython {
+		c.Printf("Python: %s (%s)\n", report.Python, report.PythonSource)
+	}
 	c.Printf("Rule description: %s\n", report.RuleDescription)
 	sort.Strings(names)
 	for _, name := range names {

@@ -1,6 +1,6 @@
 # Kamaji
 
-Kamaji is a Go CLI that runs YAML-defined targets through Python rules. It
+Kamaji is a Go CLI that runs YAML-defined targets through executable or interpreted rules. It
 validates configuration, downloads checksum-pinned dependencies, prepares
 private execution files, and passes options and trailing arguments to a rule.
 Rules implement integrations with other tools; the Go core does not provide
@@ -9,7 +9,8 @@ authentication or certify those integrations.
 ## Build and start
 
 The module requires Go 1.27.1. Runtime storage supports macOS and Linux.
-Python is needed to execute rules, but not to display help or list targets.
+Python is needed only for Python rules. Compiled Go rules run directly;
+other languages declare their interpreter or executable mode in the rule schema.
 
 ```sh
 make build
@@ -17,17 +18,105 @@ make build
 ./kamaji version
 ```
 
-The current version is v0.1.0. `make build` embeds the version from `VERSION`;
+The current version is v0.2.0. `make build` embeds the version from `VERSION`;
 plain `go build` produces a development build reporting `dev`.
 Download platform binaries and checksums from the
-[v0.1.0 release](https://github.com/ozgurcd/kamaji/releases/tag/v0.1.0).
+[v0.2.0 release](https://github.com/ozgurcd/kamaji/releases/tag/v0.2.0).
 See [Release builds](docs/RELEASING.md) for packaging and verification.
+
+Generic language execution and Go rule support are available starting with
+v0.2.0. See [release notes](RELEASE_NOTES.md) for changes and compatibility details.
+The older v0.1.0 binaries support Python rules only.
 
 ## Examples
 
-These examples assume `kamaji` is on your PATH and `python3` is installed.
+Start with the [runnable examples guide](docs/EXAMPLES.md) for Go and a
+multilingual release workflow. The [example catalog](examples/README.md) links
+to the complete source, schemas, and build files.
+
+The Python examples assume `kamaji` is on your PATH and `python3` is installed.
 They use local files and Python's standard library; no cloud account, package
 installation, or bundled extension is needed.
+
+### Run a compiled Go rule
+
+The repository includes a complete [Go example](examples/go-rule/BUILD.yaml).
+From the repository root, build Kamaji and the rule, then run it:
+
+```sh
+make build
+go build -o examples/go-rule/rules/hello/hello ./examples/go-rule/rules/hello
+cd examples/go-rule
+../../kamaji validate hello-go
+../../kamaji run hello-go -- Ada "Grace Hopper"
+```
+
+Output:
+
+```text
+Hello from Go, Ada!
+Hello from Go, Grace Hopper!
+```
+
+The rule schema declares `language: go`; the target points to the compiled
+`hello/hello` executable. Kamaji passes config values as `--name=value` options
+and trailing arguments unchanged. Go is needed to build the rule, but neither
+Go nor Python is needed to run a prebuilt rule. Build for the machine where it
+will run. See [Rule languages](docs/RULE_LANGUAGES.md) for the complete contract.
+
+### Verify a release with Go and other languages
+
+The [release workflow](examples/release-workflow/BUILD.yaml) uses Python to
+inventory files, a compiled Go rule to verify their hashes and metadata, Ruby
+to enforce a size budget, and JavaScript to write a Markdown report. It uses
+local sample files and standard libraries. Install `python3`, `ruby`, and
+`node`; from the repository root:
+
+```sh
+make build
+go build -o examples/release-workflow/rules/verify/verify ./examples/release-workflow/rules/verify
+cd examples/release-workflow
+../../kamaji validate --all
+(
+  set -e
+  ../../kamaji run inventory --timeout 30s
+  ../../kamaji run verify-go --timeout 30s
+  ../../kamaji run policy --timeout 30s
+  ../../kamaji run report --timeout 30s
+)
+```
+
+The workflow creates `out/inventory.json` and `out/report.md`. The
+[Go verifier](examples/release-workflow/rules/verify/main.go) demonstrates
+`flag`, `encoding/json`, streaming SHA256 checks, and nonzero failure exits.
+It accepts an expected metadata map as a JSON flag value and detects changes
+to the inventoried files.
+
+The commands run in order because Kamaji has no automatic target dependency
+graph. Each stage has its own schema and can also run independently when its
+inputs exist. The [full walkthrough](docs/EXAMPLES.md#a-multilingual-release-workflow)
+shows a deliberate policy failure using `BUILD.strict.yaml`, structured
+options across languages, and retained isolated output.
+
+### Use another language without changing Kamaji
+
+Set execution details in the rule's `rule_definition.yaml`. For example, a
+JavaScript rule can declare:
+
+```yaml
+language: javascript
+execution:
+  mode: interpreter
+  command: [node, --enable-source-maps]
+variables: {}
+```
+
+The target's `rule` points to its JavaScript file. Kamaji runs `node` with the
+fixed flag, rule path, configured options, and trailing arguments as separate
+arguments. Install the selected runtime yourself. For Rust, C, or another
+compiled language, declare `execution: {mode: executable}` and point `rule`
+to its binary. Language names with explicit execution settings are open-ended.
+No shell expansion, compilation, or package installation is implicit.
 
 ### Start a workspace and pass arguments
 
@@ -209,7 +298,9 @@ environments in place and refuses cleanup while an active run holds the lease.
 
 ## Documentation
 
+- [Runnable Go and multilingual examples](docs/EXAMPLES.md)
 - [Usage and configuration](docs/HOW_TO_USE.md)
+- [Rule languages, interpreter configuration, and Go plugins](docs/RULE_LANGUAGES.md)
 - [CLI commands and flags](docs/CLI_REFERENCE.md)
 - [Commands, Python setup, cleanup, retention, and embedding](docs/RUNTIME_LIFECYCLE.md)
 - [Download and archive limits](docs/RESOURCE_LIMITS.md)

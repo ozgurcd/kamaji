@@ -6,7 +6,9 @@ source is excluded at the owner's request.
 
 ## Verified behavior
 
-`runner.Executor.Run` starts the interpreter with an argument vector through
+Current execution supports both configured interpreters and compiled rule
+executables; the generic mode was added after the original review below.
+`runner.Executor.Run` starts the selected program with an argument vector through
 `exec.Command`. It does not construct a shell command. Configured options are
 sorted, structured values are JSON encoded, and trailing arguments retain their
 boundaries, including empty strings. A real Go test subprocess stands in for
@@ -17,8 +19,9 @@ working directory when omitted), or an independent copy when
 isolation is selected. Relative interpreter paths containing a directory
 component are resolved before changing the child's directory. Tests cover a
 relative interpreter outside the copied tree, which failed before this fix.
-The environment preserves ordinary inherited variables while overriding PWD,
-PYTHONPATH, and KAMAJI_ORGANIZATION_DOMAIN for the run. Child errors remain
+The environment preserves ordinary inherited variables while overriding PWD
+and KAMAJI_ORGANIZATION_DOMAIN for the run. Rules labeled Python additionally
+receive the configured PYTHONPATH; other labels preserve its inherited value. Child errors remain
 wrapped errors that callers can inspect with `errors.As`; the real-process test
 checks a child exit code of 23. The CLI now preserves child exit codes, uses 1
 for wrapper errors, 124 for deadlines, and 130 for canceled command contexts.

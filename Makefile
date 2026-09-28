@@ -19,6 +19,6 @@ release-assets:
 		mkdir -p "$$stage"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build $(BUILD_FLAGS) -o "$$stage/kamaji" .; \
 		cp LICENSE "$$stage/LICENSE"; \
-		tar -czf "$(RELEASE_DIR)/$$name.tar.gz" -C "$$stage" kamaji LICENSE; \
+		COPYFILE_DISABLE=1 tar -czf "$(RELEASE_DIR)/$$name.tar.gz" -C "$$stage" kamaji LICENSE; \
 	done
 	cd '$(RELEASE_DIR)' && shasum -a 256 kamaji_$(VERSION)_darwin_amd64.tar.gz kamaji_$(VERSION)_darwin_arm64.tar.gz kamaji_$(VERSION)_linux_amd64.tar.gz kamaji_$(VERSION)_linux_arm64.tar.gz > SHA256SUMS

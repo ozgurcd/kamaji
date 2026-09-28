@@ -1,0 +1,11 @@
+language: javascript
+execution:
+  mode: interpreter
+  command: [node]
+description: Turn a release inventory into a Markdown report
+allow_unknown: false
+variables:
+  manifest: {type: string, default: out/inventory.json}
+  output: {type: string, default: out/report.md}
+  title: {type: string, default: Release inventory}
+  columns: {type: list, default: [path, size]}

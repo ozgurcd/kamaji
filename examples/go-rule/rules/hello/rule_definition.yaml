@@ -1,0 +1,7 @@
+language: go
+description: Greet each name using a compiled Go executable
+allow_unknown: false
+variables:
+  greeting:
+    type: string
+    default: Hello

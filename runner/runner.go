@@ -63,7 +63,7 @@ func (scope *Executor) prepareArgs(target obj.ExecTarget) ([]string, error) {
 	return args, nil
 }
 
-func (scope *Executor) Run(workspace obj.WorkspaceConfig, selected obj.ExecTarget, pythonArgs ...string) (result error) {
+func (scope *Executor) Run(workspace obj.WorkspaceConfig, selected obj.ExecTarget, ruleArgs ...string) (result error) {
 	ctx := scope.Runtime.ExecutionContext()
 	if scope.Runtime.Timeout < 0 {
 		return fmt.Errorf("execution timeout cannot be negative")
@@ -82,7 +82,7 @@ func (scope *Executor) Run(workspace obj.WorkspaceConfig, selected obj.ExecTarge
 	if err := scope.Preflight(workspace, selected); err != nil {
 		return err
 	}
-	python, err := scope.Interpreter()
+	program, err := scope.Program(selected)
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,11 @@ func (scope *Executor) Run(workspace obj.WorkspaceConfig, selected obj.ExecTarge
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("rule must be a regular file")
 	}
-	command := exec.Command(python, append(args, pythonArgs...)...)
+	if program.Mode == "executable" {
+		args = args[1:] // Native programs do not take the rule path as an argument.
+	}
+	args = append(append(program.PrefixArgs, args...), ruleArgs...)
+	command := exec.Command(program.Executable, args...)
 	command.Dir = cwd
 	if scope.Runtime.Config.Isolated {
 		command.Dir = filepath.Join(scope.Runtime.Config.ExecRootDir, "origin")
@@ -125,17 +129,20 @@ func (scope *Executor) Run(workspace obj.WorkspaceConfig, selected obj.ExecTarge
 			return fmt.Errorf("isolate workspace: %w", err)
 		}
 	}
-	common := workspace.RulesCommonDir
-	if common == "" {
-		common = "common"
-	}
-	pythonPath := common
-	if !filepath.IsAbs(pythonPath) {
-		pythonPath = filepath.Join(workspace.RulesDir, common)
-	}
 	// Environ uses command.Dir for PWD; exec.Cmd resolves duplicate variables by
 	// keeping the final value, so inherited values cannot override these settings.
-	command.Env = append(command.Environ(), "KAMAJI_ORGANIZATION_DOMAIN="+workspace.WorkspaceVars[0].Org_Domain, "PYTHONPATH="+pythonPath)
+	command.Env = append(command.Environ(), "KAMAJI_ORGANIZATION_DOMAIN="+workspace.WorkspaceVars[0].Org_Domain)
+	if program.Language == "python" {
+		common := workspace.RulesCommonDir
+		if common == "" {
+			common = "common"
+		}
+		pythonPath := common
+		if !filepath.IsAbs(pythonPath) {
+			pythonPath = filepath.Join(workspace.RulesDir, common)
+		}
+		command.Env = append(command.Env, "PYTHONPATH="+pythonPath)
+	}
 	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr

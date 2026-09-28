@@ -1,0 +1,6 @@
+language: go
+description: Verify file sizes, hashes, and expected release metadata
+allow_unknown: false
+variables:
+  manifest: {type: string, default: out/inventory.json}
+  expected_metadata: {type: map, mandatory: true}

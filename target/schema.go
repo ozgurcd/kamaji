@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"kamaji/obj"
 	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 
 	cfg "kamaji/config"
 	"kamaji/tools"
@@ -16,10 +18,17 @@ import (
 
 // RuleSchema describes accepted options without executing the rule.
 type RuleSchema struct {
+	Execution    *RuleExecution `yaml:"execution,omitempty" json:"execution,omitempty"`
 	Language     string         `yaml:"language" json:"language,omitempty"`
 	Description  string         `yaml:"description" json:"description,omitempty"`
 	AllowUnknown *bool          `yaml:"allow_unknown" json:"allow_unknown,omitempty"`
 	Variables    map[string]any `yaml:"-" json:"variables"`
+}
+
+// RuleExecution specifies a language-independent process invocation.
+type RuleExecution struct {
+	Mode    string   `yaml:"mode" json:"mode"`
+	Command []string `yaml:"command,omitempty" json:"command,omitempty"`
 }
 
 func readSchema(path string) (RuleSchema, error) {
@@ -28,10 +37,11 @@ func readSchema(path string) (RuleSchema, error) {
 		return RuleSchema{}, err
 	}
 	var raw struct {
-		Language     string      `yaml:"language"`
-		Description  string      `yaml:"description"`
-		AllowUnknown *bool       `yaml:"allow_unknown"`
-		Variables    map[any]any `yaml:"variables"`
+		Execution    *RuleExecution `yaml:"execution"`
+		Language     string         `yaml:"language"`
+		Description  string         `yaml:"description"`
+		AllowUnknown *bool          `yaml:"allow_unknown"`
+		Variables    map[any]any    `yaml:"variables"`
 	}
 	if err := cfg.DecodeYAML(bytes.NewReader(data), &raw); err != nil {
 		return RuleSchema{}, err
@@ -39,7 +49,36 @@ func readSchema(path string) (RuleSchema, error) {
 	if raw.Variables == nil {
 		return RuleSchema{}, fmt.Errorf("variables section must be a map")
 	}
-	schema := RuleSchema{Language: raw.Language, Description: raw.Description, AllowUnknown: raw.AllowUnknown, Variables: map[string]any{}}
+	switch raw.Language {
+	case "", "python":
+		raw.Language = "python"
+	case "go", "golang":
+		raw.Language = "go"
+	}
+	if raw.Execution == nil {
+		if raw.Language != "python" && raw.Language != "go" {
+			return RuleSchema{}, fmt.Errorf("rule language requires execution settings; select interpreter or executable mode")
+		}
+	} else {
+		switch raw.Execution.Mode {
+		case "interpreter":
+			if len(raw.Execution.Command) == 0 || strings.TrimSpace(raw.Execution.Command[0]) == "" {
+				return RuleSchema{}, fmt.Errorf("interpreter execution requires a nonempty command argument list")
+			}
+		case "executable":
+			if len(raw.Execution.Command) != 0 {
+				return RuleSchema{}, fmt.Errorf("executable execution uses the target rule path and cannot specify command")
+			}
+		default:
+			return RuleSchema{}, fmt.Errorf("execution mode must be interpreter or executable")
+		}
+		for _, argument := range raw.Execution.Command {
+			if strings.ContainsRune(argument, '\x00') {
+				return RuleSchema{}, fmt.Errorf("execution command arguments cannot contain NUL")
+			}
+		}
+	}
+	schema := RuleSchema{Execution: raw.Execution, Language: raw.Language, Description: raw.Description, AllowUnknown: raw.AllowUnknown, Variables: map[string]any{}}
 	for key, value := range raw.Variables {
 		name, ok := key.(string)
 		if !ok || name == "" {
@@ -51,7 +90,12 @@ func readSchema(path string) (RuleSchema, error) {
 }
 
 func (scope *Manager) Schema() (RuleSchema, error) {
-	rule, err := (&tools.Context{Runtime: scope.Runtime}).GetRule(scope.Runtime.Config.ExecTarget)
+	return scope.SchemaFor(scope.Runtime.Config.ExecTarget)
+}
+
+// SchemaFor reads the definition next to a specific rule without changing runtime state.
+func (scope *Manager) SchemaFor(selected obj.ExecTarget) (RuleSchema, error) {
+	rule, err := (&tools.Context{Runtime: scope.Runtime}).GetRule(selected)
 	if err != nil {
 		return RuleSchema{}, err
 	}

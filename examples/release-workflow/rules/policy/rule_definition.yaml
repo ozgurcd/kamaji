@@ -1,0 +1,11 @@
+language: ruby
+execution:
+  mode: interpreter
+  command: [ruby]
+description: Reject inventories that exceed a release policy
+allow_unknown: false
+variables:
+  manifest: {type: string, default: out/inventory.json}
+  required_files: {type: list, mandatory: true}
+  max_total_bytes: {type: int, minimum: 1, default: 1048576}
+  fail_on_empty: {type: bool, default: true}

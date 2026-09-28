@@ -13,7 +13,7 @@ var Version = "dev"
 
 func NewCommand(options Options) *cobra.Command {
 	app := newApplication(options)
-	root := &cobra.Command{Use: "kamaji <target> [flags] [-- rule arguments]", Short: "Run a build target using a Python rule.", Version: Version, SilenceUsage: true, SilenceErrors: true}
+	root := &cobra.Command{Use: "kamaji <target> [flags] [-- rule arguments]", Short: "Run a build target using a configured interpreter or executable.", Version: Version, SilenceUsage: true, SilenceErrors: true}
 	root.Args = app.runArgs
 	root.RunE = app.run
 	app.targetFlags(root)

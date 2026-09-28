@@ -12,7 +12,8 @@ make release-assets
 ```
 
 The release target cross-compiles macOS and Linux for AMD64 and ARM64 with
-CGO disabled. Each archive contains `kamaji` and `LICENSE`. Outputs and
+CGO disabled. Each archive contains `kamaji` and `LICENSE`; packaging disables
+macOS copyfile metadata so AppleDouble sidecar files are not included. Outputs and
 `SHA256SUMS` are under `.audit/release/<version>/`, which is ignored by Git.
 Archive timestamps are not normalized; checksums identify the uploaded bytes,
 not a promise of byte-identical archive reproduction. Build paths are trimmed
@@ -25,17 +26,17 @@ Download the archive for your operating system and architecture and its
 selected archive (example for macOS ARM64):
 
 ```sh
-shasum -a 256 kamaji_v0.1.0_darwin_arm64.tar.gz
+shasum -a 256 kamaji_v0.2.0_darwin_arm64.tar.gz
 ```
 
 Compare the digest with that archive's entry in `SHA256SUMS`, then extract it:
 
 ```sh
-tar -xzf kamaji_v0.1.0_darwin_arm64.tar.gz
+tar -xzf kamaji_v0.2.0_darwin_arm64.tar.gz
 ./kamaji version
 ```
 
-The expected version is `v0.1.0`. Place the executable on your PATH if desired.
+The expected version is `v0.2.0`. Place the executable on your PATH if desired.
 Checksums detect changed bytes; they are not independent publisher signatures.
 The binaries are not signed or notarized.
 
@@ -43,12 +44,13 @@ The binaries are not signed or notarized.
 
 - Include core Go source/tests, module pins, user documentation, local wiki,
   version metadata and packaging recipes: these define and verify the release.
-- Include existing tracked extension sources and examples unchanged because
-  they are already part of the repository. They are not certified by core tests.
-- Include the prior Python requirements upgrade; it is the declared extension
-  dependency inventory, not evidence that those integrations were exercised.
-- Remove previously tracked Python bytecode and Terraform runtime state from
-  the commit: they are generated local artifacts, not release source.
+- Include the Go and multilingual workflow examples, their schemas, and their
+  integration test: they demonstrate and verify the new execution contract.
+- Retain existing tracked extension sources and dependency pins unchanged;
+  extension behavior is not certified by the core or example tests.
+- Include the root `RELEASE_NOTES.md` file and use its exact contents as the GitHub
+  release body. It describes the current release; versioned historical notes
+  and release records remain unchanged.
 - Exclude untracked `rules/kubeseal` work: extension development is outside the
   authorized core scope. It remains on disk.
 - Exclude local findings (`PROBLEMS.md`, `gograph-report.md`), `.audit`,

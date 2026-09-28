@@ -26,6 +26,11 @@ terminal control, schema constraints, and storage inspection use the standard
 library; terminal/process behavior is implemented for the supported macOS/Linux
 runtime platforms.
 
+Generic rule execution and Go plugin support also add no module dependencies.
+Compiled Go plugins need no Python or Go toolchain at execution time. Custom
+interpreted rules require their declared runtime to be installed; Kamaji does
+not install it or its packages. See [Rule languages](RULE_LANGUAGES.md).
+
 The separate `requirements.txt` pins PyYAML 6.0.3 and Jinja2 3.1.6 for Python
 extensions. They are not Go dependencies or used by the Go configuration parser.
 Managed Python setup installs the globally installed requirements file when it

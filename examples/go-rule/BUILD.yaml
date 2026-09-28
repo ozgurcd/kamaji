@@ -1,0 +1,6 @@
+targets:
+  - name: hello-go
+    description: Run a compiled Go greeting rule
+    rule: hello/hello
+    config:
+      greeting: Hello from Go

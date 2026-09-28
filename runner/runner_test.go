@@ -34,6 +34,14 @@ func put(t *testing.T, path, text string) {
 	if err := os.WriteFile(path, []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if filepath.Ext(path) == ".py" {
+		schema := filepath.Join(filepath.Dir(path), "rule_definition.yaml")
+		if _, err := os.Stat(schema); os.IsNotExist(err) {
+			if err := os.WriteFile(schema, []byte("variables: {}\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 }
 
 func TestPrepareArgs(t *testing.T) {

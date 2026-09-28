@@ -1,0 +1,28 @@
+targets:
+  - name: inventory
+    description: Inventory release files with Python and SHA256
+    rule: inventory/rule.py
+    config:
+      files: [inputs/app.txt, inputs/README.txt]
+      metadata: {project: demo, channel: preview}
+
+  - name: verify-go
+    description: Verify inventory contents with a compiled Go rule
+    rule: verify/verify
+    config:
+      expected_metadata: {project: demo, channel: preview}
+
+  - name: policy
+    description: Enforce a release size budget with Ruby
+    rule: policy/rule.rb
+    config:
+      required_files: [inputs/app.txt, inputs/README.txt]
+      max_total_bytes: 1048576
+      fail_on_empty: true
+
+  - name: report
+    description: Write a release inventory report with JavaScript
+    rule: report/rule.js
+    config:
+      title: Release readiness
+      columns: [path, size, sha256]

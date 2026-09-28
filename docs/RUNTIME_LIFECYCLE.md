@@ -2,6 +2,11 @@
 
 ## Commands
 
+Rules can use a configured interpreter or a compiled executable; see
+[Rule languages](RULE_LANGUAGES.md). Python retains its existing defaults and
+Go defaults to direct execution. Generic language support is available starting
+with v0.2.0.
+
 `kamaji targets` lists target names and descriptions from the selected build file. Use `--build`
 to select a different file. A missing target error also lists available names.
 
@@ -14,7 +19,7 @@ certify what a rule will do. `explain <target>` shows resolved paths, provenance
 limits, and cache status with option values redacted.
 
 `kamaji version` prints the build version; `kamaji --version` prints Cobra's
-version line. Release builds and `make build` use `VERSION` (currently v0.1.0).
+version line. Release builds and `make build` use `VERSION` (currently v0.2.0).
 Plain `go build` produces a development build reporting `dev`.
 
 `kamaji <target> -- <rule arguments>` remains supported. The explicit form
@@ -28,10 +33,11 @@ are rejected rather than accepted and ignored.
 
 ## Configuration errors
 
-A missing optional user configuration file is allowed. An unreadable or
+A missing optional user configuration file is allowed. For implicit Python rules, an unreadable or
 malformed file now returns an error instead of silently choosing another
 interpreter. Explicit Python selection still takes precedence over automatic
 managed-environment selection, including when a managed selection is invalid.
+Other execution modes do not load Python user configuration or managed selection.
 
 Fixed YAML fields are checked, and configuration must contain one document
 (the optional user file may also be empty).
@@ -149,7 +155,7 @@ the executable. Cross-process tests verify shared/exclusive runtime lock
 semantics. Python setup tests simulate subprocess results and verify both
 rollback and stable interpreter paths.
 
-These features do not turn Python rules into sandboxed code. Rules retain the
+These features do not turn interpreted or compiled rules into sandboxed code. Rules retain the
 user's permissions and inherited environment; argument values may be visible
 to process inspection. Extension source and real infrastructure were excluded
 from this implementation scope.

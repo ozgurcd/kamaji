@@ -1,0 +1,3 @@
+rules_directory: //rules
+workspace_vars:
+  - org_domain: example.com

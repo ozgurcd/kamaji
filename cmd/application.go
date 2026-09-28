@@ -103,15 +103,7 @@ func (a *application) installationRoot() (string, error) {
 	}
 	return root, nil
 }
-func (a *application) configurePython(managed bool) error {
-	load := a.options.LoadUserConfig
-	if load == nil {
-		load = cfg.LoadUserConfig
-	}
-	values, err := load()
-	if err != nil {
-		return err
-	}
+func (a *application) configureRuntime() error {
 	root, err := a.installationRoot()
 	if err != nil {
 		return err
@@ -135,6 +127,22 @@ func (a *application) configurePython(managed bool) error {
 		return err
 	}
 	a.runtime.Config.TmpDir = path
+	return nil
+}
+
+func (a *application) configurePython(managed bool) error {
+	if err := a.configureRuntime(); err != nil {
+		return err
+	}
+	load := a.options.LoadUserConfig
+	if load == nil {
+		load = cfg.LoadUserConfig
+	}
+	values, err := load()
+	if err != nil {
+		return err
+	}
+	path := a.runtime.Config.TmpDir
 	python := a.python
 	a.pythonSource = "flag"
 	if python == "" {
@@ -173,7 +181,7 @@ func (a *application) configurePython(managed bool) error {
 	return nil
 }
 func (a *application) loadBuild() (obj.BuildFile, error) {
-	if err := a.configurePython(true); err != nil {
+	if err := a.configureRuntime(); err != nil {
 		return obj.BuildFile{}, err
 	}
 	if err := a.runtime.LoadRuntime(a.rulesDir); err != nil {
@@ -189,6 +197,15 @@ func (a *application) check(selected obj.ExecTarget) error {
 	a.runtime.Config.ExecTarget = selected
 	if err := a.manager.ValidateTargetVariables(selected.Config); err != nil {
 		return err
+	}
+	schema, err := a.manager.Schema()
+	if err != nil {
+		return err
+	}
+	if schema.Execution == nil && schema.Language == "python" {
+		if err := a.configurePython(true); err != nil {
+			return err
+		}
 	}
 	if err := a.executor.Preflight(a.runtime.Config.WorkspaceConfig, selected); err != nil {
 		return err

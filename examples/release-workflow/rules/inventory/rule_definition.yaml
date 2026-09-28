@@ -1,0 +1,10 @@
+language: python
+execution:
+  mode: interpreter
+  command: [python3, -I]
+description: Record file sizes and hashes in a JSON inventory
+allow_unknown: false
+variables:
+  files: {type: list, mandatory: true}
+  metadata: {type: map, mandatory: true}
+  output: {type: string, default: out/inventory.json}

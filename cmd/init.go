@@ -10,8 +10,11 @@ import (
 )
 
 func (a *application) initWorkspace(c *cobra.Command, args []string) (result error) {
+	if a.template == "build" {
+		return a.initBuildProject(c, args)
+	}
 	if a.template != "minimal" {
-		return fmt.Errorf("unknown template; available: minimal")
+		return fmt.Errorf("unknown template; available: build, minimal")
 	}
 	root, err := a.runtime.WorkingDirectory()
 	if err != nil {

@@ -297,6 +297,9 @@ func (a *application) validationArgs(_ *cobra.Command, args []string) error {
 	return fmt.Errorf("provide one target or --all")
 }
 func (a *application) validate(c *cobra.Command, args []string) error {
+	if handled, err := a.inspectGraph(c, args); handled {
+		return err
+	}
 	build, err := a.loadBuild()
 	if err != nil {
 		return err
@@ -328,6 +331,9 @@ func (a *application) doctor(c *cobra.Command, args []string) error {
 	return a.validate(c, args)
 }
 func (a *application) listTargets(c *cobra.Command, _ []string) error {
+	if handled, err := a.inspectGraph(c, nil); handled {
+		return err
+	}
 	path, err := a.buildPath()
 	if err != nil {
 		return err
@@ -346,9 +352,18 @@ func (a *application) listTargets(c *cobra.Command, _ []string) error {
 	}
 	return nil
 }
-func (a *application) completeTargets(_ *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
+func (a *application) completeTargets(c *cobra.Command, args []string, prefix string) ([]string, cobra.ShellCompDirective) {
 	if len(args) > 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	if c.Name() != "run" && c.Name() != "kamaji" {
+		p, err := a.discoverGraph(c)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveError
+		}
+		if p != nil {
+			return graphCompletions(p, args, prefix), cobra.ShellCompDirectiveNoFileComp
+		}
 	}
 	path, err := a.buildPath()
 	if err != nil {

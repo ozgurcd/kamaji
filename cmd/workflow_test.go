@@ -39,7 +39,7 @@ func workflowInvoke(options Options, args ...string) (string, error) {
 
 func TestScaffoldValidateExplainAndCompletion(t *testing.T) {
 	root, options := workflowOptions(t)
-	if _, err := workflowInvoke(options, "init"); err != nil {
+	if _, err := workflowInvoke(options, "init", "--template", "minimal"); err != nil {
 		t.Fatal(err)
 	}
 	build := filepath.Join(root, "BUILD.yaml")
@@ -47,7 +47,7 @@ func TestScaffoldValidateExplainAndCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := workflowInvoke(options, "init"); err == nil {
+	if _, err := workflowInvoke(options, "init", "--template", "minimal"); err == nil {
 		t.Fatal("scaffolding overwrote existing files")
 	}
 	after, err := os.ReadFile(build)
@@ -91,7 +91,7 @@ func TestScaffoldValidateExplainAndCompletion(t *testing.T) {
 
 func TestValidationMissingInterpreterAndAllFailures(t *testing.T) {
 	root, options := workflowOptions(t)
-	if _, err := workflowInvoke(options, "init"); err != nil {
+	if _, err := workflowInvoke(options, "init", "--template", "minimal"); err != nil {
 		t.Fatal(err)
 	}
 	for _, command := range []string{"run", "validate", "doctor"} {
@@ -111,7 +111,7 @@ func TestValidationMissingInterpreterAndAllFailures(t *testing.T) {
 
 func TestUserInstallationAndExplicitRequirements(t *testing.T) {
 	root, options := workflowOptions(t)
-	if _, err := workflowInvoke(options, "init"); err != nil {
+	if _, err := workflowInvoke(options, "init", "--template", "minimal"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := workflowInvoke(options, "rules-directory-create", "--user"); err != nil {
@@ -147,7 +147,7 @@ func TestUserInstallationAndExplicitRequirements(t *testing.T) {
 
 func TestStorageCommandsAndRetainedPath(t *testing.T) {
 	root, options := workflowOptions(t)
-	if _, err := workflowInvoke(options, "init"); err != nil {
+	if _, err := workflowInvoke(options, "init", "--template", "minimal"); err != nil {
 		t.Fatal(err)
 	}
 	options.RunTarget = func(obj.WorkspaceConfig, obj.ExecTarget, ...string) error {
@@ -182,7 +182,7 @@ func TestStorageCommandsAndRetainedPath(t *testing.T) {
 func TestScaffoldRefusesExistingAndLinkedDestinations(t *testing.T) {
 	root, options := workflowOptions(t)
 	write(t, filepath.Join(root, "rules/hello/rule.py"), "preserve")
-	if _, err := workflowInvoke(options, "init"); err == nil {
+	if _, err := workflowInvoke(options, "init", "--template", "minimal"); err == nil {
 		t.Fatal("existing rule overwritten")
 	}
 	if _, err := os.Stat(filepath.Join(root, "BUILD.yaml")); !os.IsNotExist(err) {
@@ -223,7 +223,7 @@ func TestCacheCommandBudgetAndJSON(t *testing.T) {
 
 func TestExplainDefaultsIsolationAndVerifiedCache(t *testing.T) {
 	root, options := workflowOptions(t)
-	if _, err := workflowInvoke(options, "init"); err != nil {
+	if _, err := workflowInvoke(options, "init", "--template", "minimal"); err != nil {
 		t.Fatal(err)
 	}
 	payload := []byte("public artifact")

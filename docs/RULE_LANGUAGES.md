@@ -1,5 +1,10 @@
 # Rule languages
 
+This guide covers the legacy `run` interface and `rule_definition.yaml` schemas.
+The graph engine introduced in v0.3.0 instead runs any language through explicit `command`
+argument lists, without a rule schema. It can compile Go code as a declared build
+target and cache its outputs; see the [Go build walkthrough](../examples/build-project/README.md).
+
 Generic language execution is available starting with v0.2.0. The older v0.1.0
 binaries execute Python rules only; upgrade before using the settings below.
 
@@ -94,7 +99,7 @@ cd examples/go-rule
 ```
 
 The Go toolchain is needed only when compiling the plugin. Kamaji performs no
-automatic Go build, module download or build-cache management. It does not load
+automatic Go build, module download or build-cache management for legacy rules. It does not load
 `.so` files using Go's `plugin` package. The schema belongs next to the resulting
 executable, so separate platform binaries in separate directories also need
 their own schema next to each binary. The example's compiled output is ignored

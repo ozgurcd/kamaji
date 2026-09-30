@@ -13,7 +13,7 @@ var Version = "dev"
 
 func NewCommand(options Options) *cobra.Command {
 	app := newApplication(options)
-	root := &cobra.Command{Use: "kamaji <target> [flags] [-- rule arguments]", Short: "Run a build target using a configured interpreter or executable.", Version: Version, SilenceUsage: true, SilenceErrors: true}
+	root := &cobra.Command{Use: "kamaji <command> [flags]", Short: "Build dependency graphs and run language-independent rules.", Version: Version, SilenceUsage: true, SilenceErrors: true}
 	root.Args = app.runArgs
 	root.RunE = app.run
 	app.targetFlags(root)
@@ -45,9 +45,10 @@ func NewCommand(options Options) *cobra.Command {
 	app.installFlags(create)
 	app.installFlags(remove)
 	initCommand := &cobra.Command{Use: "init [directory]", Short: "Create a minimal workspace without overwriting files", Args: cobra.MaximumNArgs(1), RunE: app.initWorkspace}
-	initCommand.Flags().StringVar(&app.template, "template", "minimal", "Workspace template (minimal)")
+	initCommand.Flags().StringVar(&app.template, "template", "build", "Workspace template (build: TOML; minimal: legacy Python/YAML)")
 	root.AddCommand(run, targets, validate, doctor, explain, setup, create, remove, initCommand, app.cacheCommand(), app.runsCommand(),
 		&cobra.Command{Use: "version", Short: "Print the Kamaji version", Args: cobra.NoArgs, Run: func(command *cobra.Command, _ []string) { command.Println(Version) }})
+	root.AddCommand(app.graphCommands()...)
 	return root
 }
 

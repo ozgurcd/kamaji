@@ -44,6 +44,9 @@ type dependencyExplanation struct {
 }
 
 func (a *application) explain(c *cobra.Command, args []string) error {
+	if handled, err := a.inspectGraph(c, args); handled {
+		return err
+	}
 	build, err := a.loadBuild()
 	if err != nil {
 		return err

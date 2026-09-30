@@ -1,0 +1,29 @@
+version = 1
+default = ["check"]
+
+[[targets]]
+name = "compile"
+description = "Compile the Go generator"
+command = ["go", "build", "-o", "out/greet", "main.go"]
+inputs = ["main.go"]
+outputs = ["out/greet"]
+cache = true
+timeout = "2m"
+pass_env = ["GOCACHE", "GOPATH", "GOTMPDIR"]
+env = { GOENV = "off", GOTOOLCHAIN = "local", GOTELEMETRY = "off", CGO_ENABLED = "0" }
+
+[[targets]]
+name = "render"
+description = "Generate a greeting with the freshly built tool"
+deps = ["compile"]
+command = ["out/greet", "--message=Hello from a build graph", "--output=out/greeting.txt"]
+inputs = ["out/greet"]
+outputs = ["out/greeting.txt"]
+cache = true
+
+[[targets]]
+name = "check"
+description = "Verify the generated artifact on every build"
+deps = ["render"]
+command = ["out/greet", "--check", "--message=Hello from a build graph", "--output=out/greeting.txt"]
+inputs = ["out/greeting.txt"]

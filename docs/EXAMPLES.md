@@ -1,9 +1,41 @@
-# Runnable rule examples
+# Runnable build and rule examples
 
-These examples require Kamaji v0.2.0 or newer. The older v0.1.0 binaries support
-Python rules only. Paths in the commands below assume you
+The graph example requires Kamaji v0.3.0 or newer. The legacy
+Go and multilingual rule examples run with published Kamaji v0.2.0; the older
+v0.1.0 binaries support Python rules only. Paths in the commands below assume you
 start at the Kamaji repository root. All inputs are synthetic local files;
 none of these examples downloads dependencies or runs infrastructure tools.
+
+## Graph build example
+
+The [build-project walkthrough](../examples/build-project/README.md)
+uses the new single-file TOML build model. From the repository root:
+
+```sh
+make build
+cd examples/build-project
+../../kamaji plan --json
+../../kamaji build --jobs 2
+../../kamaji build --json
+../../kamaji affected main.go --json
+../../kamaji clean --dry-run
+```
+
+The first build executes `compile`, `render`, and `check` in dependency order.
+The second restores/reuses `compile` and `render`, then executes the non-cacheable
+`check` again. The example's compiler target explicitly passes Go cache/temp
+settings when present and disables user Go configuration. No external modules
+are used by its generator. Its graph integration test compiles the actual Go
+program, deletes both outputs, rebuilds, and checks cache restoration plus the
+verification target:
+
+```sh
+go test -tags=integration ./buildsys -run '^TestCompiledArtifactGraph$' -count=1 -v
+```
+
+Run that test command from the repository root. See [the build guide](HOW_TO_USE.md)
+for configuration and [Agent workflows](AGENT_WORKFLOWS.md) for the JSON interface. The following examples use
+the legacy rule-runner interface, available in v0.2.0.
 
 ## Go: a compiled greeting rule
 
@@ -84,7 +116,8 @@ Run the pipeline from that example directory:
 )
 ```
 
-Kamaji does not infer dependencies between targets or execute a DAG. The shell
+Legacy `BUILD.yaml` targets do not declare a graph; the newer `kamaji.toml`
+build model uses explicit `deps` for dependency scheduling. Here, the shell
 subshell gives this sequence fail-fast behavior without changing your interactive
 shell's settings. In CI, use equivalent fail-on-error steps. The report target
 only renders an inventory; it does not certify that earlier checks ran.

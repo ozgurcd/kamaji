@@ -44,6 +44,7 @@ Plan.txt
 **/.terraform*
 
 .gograph/
+.kamaji/
 .audit/
 /PROBLEMS.md
 /gograph-report.md

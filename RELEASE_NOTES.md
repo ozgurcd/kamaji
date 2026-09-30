@@ -1,64 +1,72 @@
-# Kamaji v0.2.0
+# Kamaji v0.3.0
 
-Kamaji v0.2.0 adds generic rule execution and native Go rule support. Rules can
-use a configured interpreter or run as compiled executables while sharing
-Kamaji's configuration validation, execution deadlines, exit-code handling,
-working-directory isolation, and cleanup.
+Kamaji v0.3.0 adds a lightweight, language-neutral build graph with verified
+local artifact caching and structured interfaces for coding agents. It also
+adds Homebrew installation. Existing language-rule workspaces remain supported.
 
 ## What's new
 
-- Open-ended language support through the rule schema's `execution` block.
-  Interpreter mode accepts an argument list such as `[node]`, `[ruby]`, or
-  `[python3, -I]`; executable mode launches the configured rule file directly.
-- Compiled Go rules with `language: go` or the `golang` alias. No Python runtime
-  or Kamaji-specific Go SDK is required to execute a prebuilt Go rule.
-- Language-aware `validate`, `doctor`, and `explain`, including mixed-language
-  workspaces. Explain reports `language`, `execution_mode`, and `executable`.
-- Runnable Go greeting and release-verification examples. The larger workflow
-  combines Python file inventory, Go SHA256 and metadata verification, Ruby
-  policy checks, and JavaScript Markdown reporting using standard libraries.
-- Documentation covering structured JSON options, interpreter configuration,
-  explicit target sequencing, policy failure codes, and retained isolated output.
-- Regression tests for language dispatch and schemas, plus an integration test
-  that runs the multilingual workflow with real installed language runtimes.
+- A single `kamaji.toml` project document, with equivalent graph-schema YAML.
+  Explicit targets declare argv commands, dependencies, inputs, outputs,
+  environment, tools, timeouts, effects, and scheduling slots.
+- Dependency validation, generated tools and inputs, parallel scheduling,
+  process-group cancellation, and preserved child exit statuses.
+- Opt-in content-based artifact caching. Cache hits recheck payload digests;
+  missing or changed outputs are restored and corrupt entries are rebuilt.
+- Read-only plans, plan-bound execution with `--expect-plan`, affected-target
+  selection, saved build history, and cleanup previews.
+- Versioned JSON capabilities, plans, events, results, and errors. Machine output
+  remains separate from child diagnostics. Declared external-effect actions
+  require `--allow-effects` and cannot be cached.
+- A complete Go compilation/generation/verification example, an agent workflow
+  wrapper, and guides for cache assumptions, JSON contracts, and resource limits.
+- A checksummed binary Homebrew formula for macOS/Linux on ARM64/AMD64, with a
+  local build/cache/history smoke test.
 
 ## Compatibility and migration
 
-- Existing Python schemas retain their interpreter selection when `execution`
-  is omitted. Missing `language` still defaults to Python.
-- An explicit `execution` block takes precedence over language defaults. Explicit
-  Python commands do not load Kamaji's user Python configuration or select its
-  managed environment; Python selection flags apply to implicit Python mode.
-- Every rule must have a sibling `rule_definition.yaml`, including direct
-  executor embedding. Use `variables: {}` when the rule has no configuration.
-- Other language labels require explicit execution settings. Interpreter commands
-  are argv lists, not shell command strings. Invalid execution modes and unknown
-  schema fields are rejected.
-- Config values remain `--name=value` arguments: strings are literal; maps,
-  lists, numbers, and booleans are JSON encoded. Rules parse their own arguments.
-- Kamaji does not compile plugins, install arbitrary language runtimes, load Go
-  shared-object plugins, infer target dependencies, or automatically promote
-  outputs from isolated working copies.
-- Rules retain the user's permissions. Working-copy isolation is not an OS sandbox.
+`kamaji init` now creates a graph project. Use `kamaji init --template minimal`
+for the previous YAML language-rule scaffold. Existing `run` commands and
+language schemas continue to work; `targets`, `validate`, `doctor`, and `explain`
+recognize both project models. Graph commands accept `--file`; legacy commands
+retain `--build`. The graph engine does not interpret legacy rule schemas or
+expand their `@@` dependency references.
+
+Go compilation is an explicit build target, not an inferred plugin operation.
+Graph builds use declared inputs and tools, not automatic import discovery.
+Commands keep user permissions: effect declarations, a restricted inherited
+environment, and working-copy isolation are not an OS sandbox. Undeclared input,
+SDK, library, network, or clock dependencies can invalidate cache assumptions.
+There is no remote execution/cache service or embedded model provider.
+
+Project-local `.kamaji/cache` and `.kamaji/runs` persist until explicitly cleaned.
+The older `cache` and `runs` commands manage legacy storage separately. Graph
+builds have no automatic total disk quota, and failures do not roll back earlier
+outputs. Legacy download/archive limits do not constrain arbitrary child commands.
 
 ## Installation
 
-Download the archive matching your OS and architecture and the accompanying
-`SHA256SUMS`. Available platforms are macOS and Linux, each for AMD64 and ARM64.
-Each archive contains `kamaji` and `LICENSE`; interpreters, example sources, and
-compiled example rules are not bundled. Example sources are in the tagged repository.
+```sh
+brew install ozgurcd/tap/kamaji
+kamaji version
+brew test ozgurcd/tap/kamaji
+```
 
-Verify the archive digest against `SHA256SUMS`, extract it, and run
-`kamaji version`; the expected output is `v0.2.0`. Build-from-source instructions
-require Go 1.27.1. Go dependency pins are unchanged from v0.1.0.
+The expected version is `v0.3.0`. Alternatively, download your platform archive
+and `SHA256SUMS` from this release, verify its digest, and extract it. Archives
+contain `kamaji` and `LICENSE`; example sources are in the tagged repository.
+Go 1.27.1 is required to build from source, but not to run the released binary.
+This release adds `github.com/pelletier/go-toml/v2 v2.4.3`; one YAML parser remains.
 
-The binaries are not signed or notarized. Runtime verification was performed on
-macOS ARM64; the other platform binaries are cross-built, not runtime-certified.
-Bundled infrastructure extensions remain outside this release's fixes and tests.
+Binaries are not signed or notarized. Native validation is on macOS ARM64;
+Linux and macOS AMD64 assets are cross-built, not runtime-certified. Infrastructure
+extensions remain outside this release's fixes and tests.
 
 ## Documentation
 
-- [Rule language contract](https://github.com/ozgurcd/kamaji/blob/v0.2.0/docs/RULE_LANGUAGES.md)
-- [Go and multilingual examples](https://github.com/ozgurcd/kamaji/blob/v0.2.0/docs/EXAMPLES.md)
-- [Build and checksum verification](https://github.com/ozgurcd/kamaji/blob/v0.2.0/docs/RELEASING.md)
-- [Test evidence](https://github.com/ozgurcd/kamaji/blob/v0.2.0/docs/TESTING.md)
+- [Build configuration](https://github.com/ozgurcd/kamaji/blob/v0.3.0/docs/HOW_TO_USE.md)
+- [Agent workflows and JSON contracts](https://github.com/ozgurcd/kamaji/blob/v0.3.0/docs/AGENT_WORKFLOWS.md)
+- [Go build walkthrough](https://github.com/ozgurcd/kamaji/blob/v0.3.0/examples/build-project/README.md)
+- [Homebrew installation and maintenance](https://github.com/ozgurcd/kamaji/blob/v0.3.0/homebrew/README.md)
+- [Verification evidence](https://github.com/ozgurcd/kamaji/blob/v0.3.0/docs/TESTING.md)
+- [Previous v0.2.0 release notes](https://github.com/ozgurcd/kamaji/blob/v0.3.0/docs/RELEASE-v0.2.0.md)

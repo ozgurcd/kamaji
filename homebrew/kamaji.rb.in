@@ -1,0 +1,66 @@
+# frozen_string_literal: true
+
+# Generated from Kamaji's homebrew/kamaji.rb.in and verified release archives.
+class Kamaji < Formula
+  desc "Build and automate tasks with dependency graphs and verified local caching"
+  homepage "https://github.com/ozgurcd/kamaji"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/ozgurcd/kamaji/releases/download/v@VERSION@/kamaji_v@VERSION@_darwin_arm64.tar.gz"
+      sha256 "@DARWIN_ARM64_SHA256@"
+    end
+    on_intel do
+      url "https://github.com/ozgurcd/kamaji/releases/download/v@VERSION@/kamaji_v@VERSION@_darwin_amd64.tar.gz"
+      sha256 "@DARWIN_AMD64_SHA256@"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/ozgurcd/kamaji/releases/download/v@VERSION@/kamaji_v@VERSION@_linux_arm64.tar.gz"
+      sha256 "@LINUX_ARM64_SHA256@"
+    end
+    on_intel do
+      url "https://github.com/ozgurcd/kamaji/releases/download/v@VERSION@/kamaji_v@VERSION@_linux_amd64.tar.gz"
+      sha256 "@LINUX_AMD64_SHA256@"
+    end
+  end
+
+  def install
+    bin.install "kamaji"
+  end
+
+  test do
+    assert_equal "v#{version}", shell_output("#{bin}/kamaji version 2>&1").strip
+    capabilities = JSON.parse(shell_output("#{bin}/kamaji capabilities"))
+    assert_equal "kamaji.capabilities.v1", capabilities.fetch("schema")
+    assert_includes capabilities.fetch("build_commands"), "build"
+
+    (testpath/"kamaji.toml").write <<~TOML
+      version = 1
+      default = ["greet"]
+      [[targets]]
+      name = "greet"
+      command = ["/bin/sh", "-c", "printf hello > greeting.txt"]
+      outputs = ["greeting.txt"]
+      cache = true
+    TOML
+    plan = JSON.parse(shell_output("#{bin}/kamaji plan --json"))
+    assert_equal "kamaji.plan.v1", plan.fetch("schema")
+    refute_path_exists testpath/".kamaji"
+    result = JSON.parse(shell_output("#{bin}/kamaji build --expect-plan #{plan.fetch("id")} --json"))
+    assert result.fetch("success")
+    assert_equal plan.fetch("id"), result.fetch("plan")
+    assert_equal "executed", result.fetch("targets").first.fetch("status")
+    assert_equal "hello", (testpath/"greeting.txt").read
+    (testpath/"greeting.txt").unlink
+    cached = JSON.parse(shell_output("#{bin}/kamaji build --json"))
+    assert_equal "cached", cached.fetch("targets").first.fetch("status")
+    assert_equal "hello", (testpath/"greeting.txt").read
+    history = JSON.parse(shell_output("#{bin}/kamaji history #{cached.fetch("id")}"))
+    assert_equal cached, history
+  end
+end

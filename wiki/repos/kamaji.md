@@ -5,18 +5,38 @@ co_versioned: true
 # Kamaji repository
 
 This repository owns its wiki. It does not use the parent Development wiki.
-This page is co-versioned with the Kamaji source. The v0.2.0 release adds generic
-language support and runnable examples to the core fixes and usability improvements
-from v0.1.0. See the [release notes](../../RELEASE_NOTES.md) and
+This page is co-versioned with the Kamaji source. The v0.3.0 release adds a
+lightweight graph build system and Homebrew distribution to the generic language
+runner introduced in v0.2.0. See the [release notes](../../RELEASE_NOTES.md) and
 [release build guide](../../docs/RELEASING.md).
 
 ## Current core
 
-The current source tree executes YAML-defined targets through configured
-interpreters or compiled executables, including Go, starting with v0.2.0. The
-older v0.1.0 release remains Python-only. Start with
+Kamaji v0.3.0 adds a lightweight build system using a
+single `kamaji.toml` project document. `kamaji init` selects this format by
+default; equivalent graph-schema YAML is supported. Published v0.2.0 binaries
+retain the earlier YAML language-rule interface, including Go executables.
+The older v0.1.0 release remains Python-only. Start with
 [README](../../README.md) and the complete [usage example](../../docs/HOW_TO_USE.md).
-The current implementation includes:
+The graph implementation includes:
+
+- Explicit dependency graphs with cycle and output-ownership checks, including
+  glob intersections with generated directory trees and local executable paths.
+- Declared inputs, outputs, environment and tools; parallel scheduling, deadlines,
+  cancellation and verified local artifact caching/restoration.
+- Versioned JSON capabilities, read-only plans, events, results and saved evidence.
+- Plan-bound execution, affected-target queries, cleanup previews and explicit
+  permission for declared external-effect actions.
+- A compiled Go example covering compilation, generated output and verification.
+
+These features use declared inputs; they do not provide hermetic execution or an
+OS sandbox. The [build guide](../../docs/HOW_TO_USE.md) records the precise
+contracts, conservative directory matching and cache limits.
+[Agent workflows](../../docs/AGENT_WORKFLOWS.md) defines the JSON interface and
+plan-bound execution example. The [Go build walkthrough](../../examples/build-project/README.md)
+covers compilation, verification, repeated builds, and output restoration.
+
+The existing language-rule implementation remains supported and includes:
 
 - Strict configuration parsing, required/default variable checks, duplicate-name
   rejection, safe YAML/download diagnostics, and a single YAML v3 parser.
@@ -39,8 +59,9 @@ The current implementation includes:
 [Rule languages](../../docs/RULE_LANGUAGES.md) defines the execution contract and Go example.
 [Runnable examples](../../docs/EXAMPLES.md) includes a Go greeting and a release
 workflow with Python inventory, compiled Go verification, Ruby policy checks,
-and JavaScript reporting. The workflow is explicitly sequenced by the caller;
-Kamaji does not infer target dependencies.
+and JavaScript reporting. That legacy workflow is explicitly sequenced by the
+caller. Graph projects instead declare dependencies with `deps`; Kamaji does
+not infer language imports or undeclared dependencies.
 
 [Runtime lifecycle](../../docs/RUNTIME_LIFECYCLE.md),
 [resource limits](../../docs/RESOURCE_LIMITS.md), and
@@ -49,9 +70,12 @@ behavior and limits. Rules keep user permissions; isolation is not a sandbox.
 
 The Go directive is 1.27.1. [Dependencies](../../docs/DEPENDENCIES.md) records
 the module versions and distinguishes Go libraries from Python requirements.
-The usability implementation adds no external Go libraries.
+The graph implementation adds the TOML parser; earlier usability and generic
+language additions introduced no external Go libraries.
 [Testing](../../docs/TESTING.md) records the latest implementation validation
-and retains earlier measurements with their original scope.
+and retains earlier measurements with their original scope. Its
+[requirements recheck](../../docs/TESTING.md#build-system-requirements-recheck--2026-09-30)
+records independent compiled-CLI checks after the graph gap fixes.
 
 ## Review status
 
@@ -74,3 +98,4 @@ tests when the implementation changes.
 | --- | --- | --- |
 | 2026-09-28 | co-versioned | Core fixes, usability improvements, documentation and v0.1.0 packaging. |
 | 2026-09-29 | co-versioned | Generic rule execution, Go support, multilingual examples and v0.2.0 packaging. |
+| 2026-09-30 | co-versioned | Graph build system, structured automation, verified artifact caching, documentation, Homebrew configuration and v0.3.0 packaging. |

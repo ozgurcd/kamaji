@@ -1,10 +1,24 @@
 # Kamaji
 
-Kamaji is a Go CLI that runs YAML-defined targets through executable or interpreted rules. It
-validates configuration, downloads checksum-pinned dependencies, prepares
-private execution files, and passes options and trailing arguments to a rule.
-Rules implement integrations with other tools; the Go core does not provide
-authentication or certify those integrations.
+Kamaji is a lightweight Go build and automation CLI. A single `kamaji.toml`
+declares commands, dependencies, inputs, and outputs. Kamaji schedules independent
+work, reuses verified local artifacts, and exposes structured plans and results
+for developers and coding agents. Existing YAML-defined language rules remain
+available through `run`.
+
+The graph build system is available starting with **v0.3.0**. The v0.2.0
+binaries provide the earlier language-independent rule runner.
+
+## Install with Homebrew
+
+```sh
+brew install ozgurcd/tap/kamaji
+kamaji version
+```
+
+The formula installs a checksummed native binary for macOS or Linux, on ARM64
+or AMD64. It does not install language runtimes or extension tools. See
+[Homebrew installation and maintenance](homebrew/README.md).
 
 ## Build and start
 
@@ -18,10 +32,10 @@ make build
 ./kamaji version
 ```
 
-The current version is v0.2.0. `make build` embeds the version from `VERSION`;
+The current version is v0.3.0. `make build` embeds the version from `VERSION`;
 plain `go build` produces a development build reporting `dev`.
 Download platform binaries and checksums from the
-[v0.2.0 release](https://github.com/ozgurcd/kamaji/releases/tag/v0.2.0).
+[v0.3.0 release](https://github.com/ozgurcd/kamaji/releases/tag/v0.3.0).
 See [Release builds](docs/RELEASING.md) for packaging and verification.
 
 Generic language execution and Go rule support are available starting with
@@ -29,6 +43,48 @@ v0.2.0. See [release notes](RELEASE_NOTES.md) for changes and compatibility deta
 The older v0.1.0 binaries support Python rules only.
 
 ## Examples
+
+### Start a build project
+
+With Kamaji v0.3.0 or newer on PATH:
+
+```sh
+kamaji init
+kamaji plan
+kamaji build
+```
+
+This creates a runnable `kamaji.toml`. Commands are argument lists; no shell is
+inserted. For a real compiled Go pipeline, from the repository root:
+
+```sh
+make build
+cd examples/build-project
+../../kamaji plan --json
+../../kamaji build --jobs 2
+../../kamaji build --json
+```
+
+The [example walkthrough](examples/build-project/README.md) compiles a Go tool, uses it to
+generate a greeting file, and verifies the result. Subsequent builds reuse the
+compiled tool and generated file while rerunning the verification. Missing
+outputs are restored from a verified cache; changed source or options invalidate
+the relevant action. Declared outputs live at their configured paths; cached
+artifacts and execution evidence live under `.kamaji/`.
+
+For an agent workflow, `capabilities` describes the JSON interface, `plan --json`
+returns a content-bound plan ID, and `build --expect-plan` accepts that ID to
+reject stale plans. `build --events` streams JSON status events and a final
+result; child output goes to stderr. `affected` reports reverse dependencies of
+changed paths, and `history` reads a recorded build result. Targets declared
+`effect = "external"` require `--allow-effects` and cannot be cached.
+
+See [build configuration](docs/HOW_TO_USE.md) for cache limitations and cleanup,
+and [agent workflows](docs/AGENT_WORKFLOWS.md) for JSON contracts and a complete
+plan/build/history wrapper. No LLM service,
+daemon, or language SDK is required.
+
+### Language rule examples
 
 Start with the [runnable examples guide](docs/EXAMPLES.md) for Go and a
 multilingual release workflow. The [example catalog](examples/README.md) links
@@ -92,8 +148,9 @@ The workflow creates `out/inventory.json` and `out/report.md`. The
 It accepts an expected metadata map as a JSON flag value and detects changes
 to the inventoried files.
 
-The commands run in order because Kamaji has no automatic target dependency
-graph. Each stage has its own schema and can also run independently when its
+These legacy `BUILD.yaml` commands run in explicit order. New `kamaji.toml`
+build projects declare graph dependencies through `deps`. Each legacy stage
+has its own schema and can also run independently when its
 inputs exist. The [full walkthrough](docs/EXAMPLES.md#a-multilingual-release-workflow)
 shows a deliberate policy failure using `BUILD.strict.yaml`, structured
 options across languages, and retained isolated output.
@@ -125,7 +182,7 @@ Create a new project with a working greeting rule:
 ```sh
 mkdir kamaji-demo
 cd kamaji-demo
-kamaji init
+kamaji init --template minimal
 kamaji targets
 kamaji validate hello
 kamaji run hello -- "release candidate" "ready for review"
@@ -139,7 +196,7 @@ release candidate
 ready for review
 ```
 
-`init` creates `kamaji.workspace.yaml`, `BUILD.yaml`, and the rule and schema
+`init --template minimal` creates `kamaji.workspace.yaml`, `BUILD.yaml`, and the rule and schema
 under `rules/hello/`. It refuses to overwrite existing files. Quotes preserve
 each argument containing spaces, and `--` separates Kamaji flags from arguments
 for the rule. The shorthand `kamaji hello -- "release candidate"` also works.
@@ -273,7 +330,10 @@ When you want to discard cached downloads and retained runs, execute
 `kamaji cache clean --runs` without `--dry-run`. It leaves managed Python
 environments in place and refuses cleanup while an active run holds the lease.
 
-## Core behavior
+## Legacy rule-runner behavior
+
+The following applies to `run` and YAML language-rule workspaces. Graph build
+behavior is covered in [Usage](docs/HOW_TO_USE.md).
 
 - Strict YAML parsing rejects unknown fixed fields, duplicate keys/names, and
   extra documents. Rule schemas enforce supported types, defaults, and required
@@ -300,12 +360,14 @@ environments in place and refuses cleanup while an active run holds the lease.
 
 - [Runnable Go and multilingual examples](docs/EXAMPLES.md)
 - [Usage and configuration](docs/HOW_TO_USE.md)
+- [Agent workflows and JSON contracts](docs/AGENT_WORKFLOWS.md)
+- [Go build, cache, and restoration walkthrough](examples/build-project/README.md)
 - [Rule languages, interpreter configuration, and Go plugins](docs/RULE_LANGUAGES.md)
 - [CLI commands and flags](docs/CLI_REFERENCE.md)
 - [Commands, Python setup, cleanup, retention, and embedding](docs/RUNTIME_LIFECYCLE.md)
-- [Download and archive limits](docs/RESOURCE_LIMITS.md)
+- [Build, download, and archive limits](docs/RESOURCE_LIMITS.md)
 - [Executor trust boundary](docs/EXECUTOR_SECURITY.md)
-- [Dependencies and YAML choice](docs/DEPENDENCIES.md)
+- [Dependencies and TOML/YAML parsers](docs/DEPENDENCIES.md)
 - [Tests and recorded validation](docs/TESTING.md)
 - [Review findings and implementation follow-up](docs/GENERAL_REVIEW.md)
 - [Repository-local wiki](wiki/index.md)

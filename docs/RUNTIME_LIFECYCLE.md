@@ -1,5 +1,29 @@
 # Commands, configuration, and runtime storage
 
+Kamaji v0.3.0 adds graph builds. `init` now creates a
+single `kamaji.toml`; `init --template minimal` retains the legacy scaffold.
+Graph `build` uses private project-local `.kamaji/cache` and `.kamaji/runs`
+directories and a workspace-wide build/cleanup lease. Targets may run in
+parallel within that lease. JSON records persist until `clean --history`;
+the artifact cache persists until `clean --cache`. `clean --dry-run` is read-only.
+A busy build or cleanup lease causes an error instead of waiting.
+These commands do not use the legacy temporary storage or retention policy below.
+There is no automatic graph cache/history pruning or total disk quota. The
+legacy `cache` and `runs` commands do not manage project-local `.kamaji/`.
+
+Actions write their declared outputs in the project tree. Failed actions can
+leave partial outputs; failed builds do not roll back previously completed
+actions. Cache restoration replaces declared output paths and is not a
+transaction across the entire graph. Cache entries and run records are separate
+from these workspace outputs.
+
+Graph children use a small declared environment and have no interactive stdin.
+The `targets`, `validate`, `doctor`, and `explain` commands recognize either
+project model. See [the build guide](HOW_TO_USE.md) for graph configuration,
+cache correctness, environment details, and the agent interface. The remaining
+sections describe the legacy language-rule lifecycle. Generic language support
+was added in v0.2.0; the earlier lifecycle also supported Python rules.
+
 ## Commands
 
 Rules can use a configured interpreter or a compiled executable; see
@@ -19,7 +43,7 @@ certify what a rule will do. `explain <target>` shows resolved paths, provenance
 limits, and cache status with option values redacted.
 
 `kamaji version` prints the build version; `kamaji --version` prints Cobra's
-version line. Release builds and `make build` use `VERSION` (currently v0.2.0).
+version line. Release builds and `make build` use `VERSION` (currently v0.3.0).
 Plain `go build` produces a development build reporting `dev`.
 
 `kamaji <target> -- <rule arguments>` remains supported. The explicit form

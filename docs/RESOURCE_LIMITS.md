@@ -1,6 +1,31 @@
-# Download and archive limits
+# Build, download, and archive limits
 
-Kamaji limits dependency downloads and archive expansion. The defaults approved
+## Graph builds (v0.3.0 and newer)
+
+The graph engine reads a regular project document of at most 4 MiB. Cache
+manifest reads are limited to 4 MiB; invalid or oversized manifests are cache
+misses. Saved run-record reads are limited to 8 MiB and reject oversized
+records. These are document-read limits, not quotas on child output, generated
+artifacts, total cache storage, or run-record creation.
+
+`build --jobs` limits concurrent scheduling slots; a target's `slots` consumes
+that budget. It does not limit CPU threads or memory within a child process.
+`--timeout` limits the whole build and a target's `timeout` limits its execution;
+cancellation terminates child process groups. Synchronous filesystem work such
+as hashing or copying is not preempted mid-operation.
+
+Project-local `.kamaji/cache` and `.kamaji/runs` have no automatic size budget or
+retention policy. Use `clean --cache` or `clean --history` for explicit removal,
+with `--dry-run` to preview; `clean` also selects declared outputs for deletion.
+See [Runtime lifecycle](RUNTIME_LIFECYCLE.md) for storage and locking.
+
+The legacy download/archive limits below do not constrain arbitrary graph
+commands. A child can download data or write undeclared files with the user's
+permissions. Effect declarations and scheduling limits are not an OS sandbox.
+
+## Legacy dependency downloads and archives
+
+The legacy rule runner limits dependency downloads and archive expansion. The defaults approved
 on 2026-09-28 are 512 MiB per download, 2 GiB of extracted file data per archive,
 and 10,000 archive members per archive. HTTP downloads also have an overall
 two-minute timeout.

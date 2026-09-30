@@ -1,16 +1,203 @@
 # Using Kamaji
 
-This guide describes the Go core. The example rule below is self-contained;
-bundled Terraform, kubeseal, and other extensions have separate behavior and
-were excluded from the recent core fixes.
+This guide describes Kamaji v0.3.0. Graph builds require v0.3.0 or newer;
+v0.2.0 supports the legacy rule runner. Existing Terraform, kubeseal, and other extensions
+have separate behavior and were excluded from the core changes.
+
+## A build project in one file
+
+`kamaji init` creates a runnable `kamaji.toml` in the current directory and
+refuses to overwrite an existing build document. Use `kamaji plan` to inspect
+it and `kamaji build` to run it. The [compiled Go walkthrough](../examples/build-project/README.md)
+shows a complete compiler → generator → verification graph.
+
+```toml
+version = 1
+default = ["check"]
+
+[[targets]]
+name = "compile"
+command = ["go", "build", "-o", "out/app", "main.go"]
+inputs = ["main.go"]
+outputs = ["out/app"]
+cache = true
+timeout = "2m"
+
+[[targets]]
+name = "check"
+deps = ["compile"]
+command = ["out/app", "--self-test"]
+inputs = ["out/app"]
+```
+
+This configuration shape assumes your `main.go` implements `--self-test`; the
+checked-in example contains an actual runnable program. Commands can invoke any
+interpreter or executable. Declare script files as inputs when using a script.
+Kamaji does not insert a shell, interpolate variables, or compile a rule unless
+you declare a compilation target.
+
+`targets`, `validate --all`, `doctor`, and `explain` also recognize graph
+projects. Graph explanation uses the same plan contract as `plan`; validation
+checks generated inputs symbolically and does not build their producers.
+Explicit legacy-only interpreter, installation, and isolation flags are rejected
+when inspecting a graph project. To inspect a legacy file alongside a graph,
+select it explicitly with `--build BUILD.yaml`.
+
+The document is discovered from the working directory upwards. Paths and child
+working directories are relative to the document's directory. `--file` selects
+a document explicitly. `kamaji.yaml` and `kamaji.yml` can express the same graph
+schema; discovering multiple documents in one directory is an error. Legacy
+`BUILD.yaml` and `kamaji.workspace.yaml` remain a separate rule-runner format.
+There is no forced migration or silent interpretation of one schema as another.
+
+| Target field | Meaning |
+| --- | --- |
+| `name`, `description` | Unique target identity and optional human-readable explanation |
+| `command` | Exact executable and arguments; omit only for a dependency-only aggregate |
+| `deps` | Targets that must finish first; cycles and unknown names are rejected |
+| `inputs` | Project-relative files, recursive directories, or globs; `**` matches directory levels |
+| `outputs` | Exact project-relative artifact files or directories; no wildcards |
+| `cache` | Opt in to local content-based reuse; defaults to false and requires outputs |
+| `env` | Explicit environment map; values participate in the fingerprint but are not printed in plans |
+| `pass_env` | Additional inherited environment variable names |
+| `tools` | Additional executables to fingerprint, beyond `command[0]` |
+| `timeout` | Per-action positive duration, such as `30s` or `2m` |
+| `slots` | Parallel execution slots consumed by the target, default 1 |
+| `effect` | `build` by default; `external` requires explicit permission and disables caching |
+
+`version = 1` is required. Without target arguments, `default` selects roots;
+without `default`, all targets are selected. Dependencies execute once in
+topological order; independent targets may run concurrently under `--jobs`.
+On failure, new work is blocked and running children are canceled through their
+process groups. Children have no interactive stdin. Nonzero child exit codes
+are preserved; deadlines use exit code 124. A whole-build `--timeout` also
+limits execution; synchronous filesystem work is not preempted mid-operation.
+
+Paths must stay within the project and cannot use `..`, symlinks, or special
+files. `.git`, `.kamaji`, `.audit`, and `.gograph` are reserved and excluded
+from wildcard traversal. Outputs cannot overlap each other or the producer's
+inputs. A target consuming another target's declared output must depend on it.
+Missing source inputs fail; generated inputs and executables may be absent
+during planning if a dependency will produce them.
+
+Dependency validation considers each output a possible directory tree, even
+before it exists. For example, `inputs = ["**/*.txt"]` can consume files below
+an output named `generated`, so the consumer must depend on its producer.
+The same overlap is rejected between a target's own inputs and outputs. Prefer
+narrow patterns such as `src/**/*.txt` when generated files are not inputs.
+Generated parent directories do not change a reviewed plan's identity; source
+files alongside the generated outputs still do.
+
+Use explicit paths for project executables: `./tool`, `tools/compiler`, or an
+absolute path inside the project. These spellings share dependency and affected
+path handling. Bare names such as `go` are PATH lookups; declare project files
+they consume separately. Absolute project-local executable paths are subject to
+the same symlink and path checks as relative ones.
+
+## Incremental builds and cache correctness
+
+An action key includes declared input content and modes, its command and
+configuration, effective environment, platform, executable contents, and
+dependency results. The baseline environment contains PATH, HOME, TMPDIR when
+present, PWD, and a C locale. Other inherited variables must be named in
+`pass_env`. Every effective value participates in the key; values and command
+arguments are omitted from plan/result JSON.
+
+Successful cacheable actions must produce every declared output. Cache payloads
+are hashed again before reuse, including when existing workspace outputs appear
+unchanged. Missing or modified outputs are restored; corrupt cache entries are
+rebuilt. Input or tool changes during execution prevent cache publication.
+`--no-cache` bypasses reads and writes. Non-cacheable checks run every time;
+an always-running dependency without outputs also prevents downstream reuse.
+
+This is a declared-input cache, not a hermetic build guarantee. A command can
+read undeclared files, compiler support files, HOME configuration, external
+services, or the clock. Executable fingerprints do not capture an entire SDK or
+its dynamically loaded libraries. Declare relevant project inputs and tools,
+pin your toolchain, and leave `cache = false` when inputs or effects cannot be
+described reliably. Prefer narrow source directories or file patterns over
+patterns that also include generated outputs. Isolation and operating-system
+permissions are not enforced by the graph runner; `effect` is a declaration,
+not a sandbox or network firewall.
+
+Add `.kamaji/` to your project's `.gitignore`. Each project serializes concurrent
+build/cleanup processes with a lease, while actions within a build can run in
+parallel. Cache entries and private JSON evidence records persist until cleaned:
+
+```sh
+kamaji clean --dry-run
+kamaji clean
+kamaji clean --cache --dry-run
+```
+
+`clean` removes declared outputs for the selected dependency closure. `--cache`
+also removes the whole project's action cache. Run records are preserved unless
+`--history` is explicitly requested. The existing `cache`/`runs` commands manage
+legacy runner storage and do not manage `.kamaji/`.
+
+## Choosing an execution model
+
+| Need | Graph project | Legacy rule workspace |
+| --- | --- | --- |
+| Configuration | `kamaji.toml`, or equivalent graph-schema YAML | `kamaji.workspace.yaml`, `BUILD.yaml`, and per-rule schemas |
+| Execution | `build` follows explicit `deps` | `run` launches one rule; caller sequences rules |
+| Language interface | Explicit argv in `command` | Schema selects interpreter or native executable; config becomes flags |
+| Reuse | Opt-in declared-output action cache | Verified downloaded dependencies; rule execution itself is not action-cached |
+| Evidence | Plan IDs, JSON events/results, `history` | Redacted `explain`, child output, optional retained execution directory |
+| Storage commands | `clean`, optionally `--cache` or `--history` | `cache` and `runs` |
+
+Existing language rules do not need migration. To model one as a graph target,
+declare its actual argv, inputs, outputs, environment, and dependencies yourself;
+graph commands do not interpret `rule_definition.yaml`, expand legacy `@@`
+references, or select managed Python environments. Pin an explicit interpreter
+or executable as needed. Leave caching off until the action's inputs and outputs
+are accurately declared. A schema label such as `language: go` belongs to the
+legacy interface; a graph target compiles Go only when its command says to.
+
+## Agent workflows
+
+For a copyable plan/build/history wrapper, JSON field reference, and streaming
+error-handling guidance, see [Agent workflows](AGENT_WORKFLOWS.md).
+
+The engine works without an LLM. An agent can discover contracts with
+`kamaji capabilities`, inspect `kamaji plan --json`, and pass the returned ID
+to `kamaji build --expect-plan`. The build refuses changed plans before starting
+actions and rechecks source state as each action becomes ready. Cached/uncached
+availability does not change a plan's content identity. Dependent cache decisions
+are deferred until upstream artifacts exist; the plan labels those targets pending.
+
+`build --json` writes a `kamaji.result.v1` document to stdout; child diagnostics
+go to stderr. `build --events` instead emits newline-delimited
+`kamaji.event.v1` status records followed by the final result. Preflight failures
+use `kamaji.error.v1`. Results identify the reviewed plan, target statuses and
+exit codes, input/tool digests, and verified output digests. The same result is
+stored in `.kamaji/runs` and can be retrieved with `kamaji history` and its run ID.
+Child stdout/stderr are streamed, not persisted in those JSON records; capture
+stderr externally when an agent needs the detailed tool log later.
+
+`kamaji affected --json` accepts project-relative changed paths, including
+deleted paths, and returns matching targets plus their reverse dependencies.
+It relies on declared inputs; it does not infer imports or discover undeclared
+dependencies. Explicit local executable and `tools` paths are included, along
+with reverse dependencies. Changed directories are matched against the input
+patterns beneath them. A deleted or unreadable path is conservatively treated as
+a possible directory, so the result can include extra targets. An agent can run
+the returned targets, inspect failures, propose
+source edits, then request a fresh plan. Kamaji does not autonomously rewrite
+source, weaken tests, contact a model provider, or publish anything.
+
+Targets such as deployments and publication should declare `effect = "external"`.
+They cannot be cached and require `build --allow-effects`; combine that flag with
+`--expect-plan` to bind execution to a reviewed plan. Configuration is trusted
+project code: these declarations do not make arbitrary commands safe.
 
 For complete checked-in Go examples and a workflow combining Python, Go, Ruby,
 and JavaScript, see [Runnable rule examples](EXAMPLES.md). It covers structured
 options, file verification, policy failures, report generation, and isolation.
 
-## A minimal workspace
+## Legacy language-rule workspaces
 
-Run `kamaji init` in a new project directory to generate a complete minimal
+Run `kamaji init --template minimal` in a new project directory to generate a complete minimal
 workspace. It refuses to overwrite existing files. The following manual example
 shows the same core layout. See [CLI reference](CLI_REFERENCE.md) for all commands.
 

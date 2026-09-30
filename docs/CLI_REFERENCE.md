@@ -1,17 +1,55 @@
 # CLI reference
 
-Commands below describe v0.2.0, including generic language execution.
+Commands below describe v0.3.0, including graph builds and the
+language-rule interface introduced in v0.2.0.
 See [Rule languages](RULE_LANGUAGES.md).
-Release builds and `make build` report the value in `VERSION` (currently `v0.2.0`);
+Release builds and `make build` report the value in `VERSION` (currently `v0.3.0`);
 plain `go build` produces a development build reporting `dev`.
 
 ## Start and inspect a project
 
-`kamaji init [directory]` creates a minimal workspace, a `hello` target, and a
-self-contained Python rule/schema. The default directory is the working
-directory; `--template minimal` names the currently available template.
+`kamaji init [directory]` creates a single-file TOML build project. Use
+`--template minimal` for the legacy workspace, `hello` target, and self-contained
+Python rule/schema. The default directory is the working directory.
 Existing destination files and symlinked destination directories are rejected.
 No Python, package installer, or external service is invoked by scaffolding.
+
+## Graph build commands
+
+These commands discover `kamaji.toml` (or graph-schema `kamaji.yaml`/`kamaji.yml`)
+and accept `--file`/`-f`. They are separate from the legacy commands below.
+
+The familiar `targets`, `validate`, `doctor`, and `explain` commands also
+auto-detect graph projects. Their existing `--build` flag can explicitly select
+a TOML file or the conventional `kamaji.yaml`/`kamaji.yml`; explicitly selecting
+a legacy BUILD file retains legacy behavior. Graph `explain --json` returns
+`kamaji.plan.v1`. Legacy-only flags are rejected in graph inspection.
+
+- `build [targets...]`: execute the dependency closure; `--jobs`/`-j` controls
+  slots, `--timeout` sets a build deadline, and `--no-cache` bypasses artifact reuse.
+- `plan [targets...] [--json]`: read-only graph and source inspection; includes
+  a stable plan ID, cache explanations, and external-effect declarations.
+- `build --expect-plan ID`: reject a stale reviewed plan before execution.
+- `build --allow-effects`: permit explicitly declared external-effect targets.
+- `build --json`: one versioned result on stdout; child output on stderr.
+- `build --events`: JSON event stream and final result; mutually exclusive with `--json`.
+- `affected <paths...> [--json]`: reverse dependency closure for project-relative
+  changed or deleted paths; does not consult Git or infer language imports.
+- `history <run-id> [--json]`: read the saved JSON result from project-local
+  `.kamaji/runs`. Success is always JSON; `--json` selects structured errors.
+- `clean [targets...] [--dry-run] [--cache] [--history] [--json]`: remove declared
+  outputs; cache and evidence deletion require their respective flags.
+- `capabilities`: versioned JSON description of the graph automation interface.
+
+See [the build guide](HOW_TO_USE.md) for configuration, environment defaults,
+generated tools, cache contracts, and the limits of effect declarations.
+[Agent workflows](AGENT_WORKFLOWS.md) documents JSON fields, event framing,
+error handling, and a complete plan-bound execution example.
+
+## Inspect legacy workspaces
+
+The following inspection details apply to legacy `BUILD.yaml` workspaces;
+graph inspection is described above.
 
 `kamaji targets` lists sorted names and optional descriptions from the selected
 build file. Target-taking commands support name completion, including descriptions,

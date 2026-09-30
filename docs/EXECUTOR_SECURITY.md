@@ -4,6 +4,37 @@ This review uses the current Go source and fresh offline test results. Existing
 project descriptions are not evidence of security guarantees. Extension rule
 source is excluded at the owner's request.
 
+## Graph execution (v0.3.0 and newer)
+
+The new graph runner also executes argv directly and shares the process-group
+cancellation implementation. It runs non-interactive commands in the project
+directory. Its environment is limited to the documented baseline and explicitly
+declared entries; effective values contribute to cache keys. Plans and evidence
+omit argv values and environment values, but executable paths, input/output
+paths and hashes remain visible. Child output is streamed and can expose
+anything the child chooses to print.
+
+Declared inputs reject symlinks and special files. Outputs must be confined
+relative paths and cannot overlap other targets' outputs. Private project cache
+payloads are rehashed before reuse. Failed or input-mutating actions are not
+cached. Cleanup and builds share a lease. These are protections against accidental
+misconfiguration and stale artifacts, not against hostile same-user processes,
+undeclared reads, path races, or arbitrary commands writing outside declared
+outputs. Cache restoration can replace files under declared output paths.
+
+`effect = "external"` requires explicit CLI permission and prohibits caching;
+it is a project-author declaration, not an enforced network/filesystem sandbox.
+`--expect-plan` detects changed declared content before execution. An agent must
+still review the trusted project configuration and capture child diagnostics
+when needed. No model provider is contacted by Kamaji. See
+[the build guide](HOW_TO_USE.md) for configuration and limitations, and
+[Agent workflows](AGENT_WORKFLOWS.md) for review, JSON handling, and evidence
+retention. The [requirements recheck](TESTING.md#build-system-requirements-recheck--2026-09-30)
+records the local failure, cache, cleanup, and effect-permission proofs.
+
+The following sections retain the earlier language-rule executor review and
+its historical measurements.
+
 ## Verified behavior
 
 Current execution supports both configured interpreters and compiled rule

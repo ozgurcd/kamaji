@@ -1,7 +1,7 @@
 # Dependencies
 
 This inventory describes the module declarations and current core
-on 2026-09-28. Version numbers are pinned values, not a continuing claim that
+on 2026-09-30. Version numbers are pinned values, not a continuing claim that
 they are the latest releases.
 
 The Go directive is `go 1.27.1`. Direct dependencies in `go.mod` are:
@@ -9,6 +9,8 @@ The Go directive is `go 1.27.1`. Direct dependencies in `go.mod` are:
 - `github.com/spf13/cobra v1.10.2`: CLI commands, flags, and help.
 - `github.com/h2non/filetype v1.1.3`: dependency payload type detection.
 - `go.yaml.in/yaml/v3 v3.0.5`: user, workspace, build, and rule-schema YAML.
+- `github.com/pelletier/go-toml/v2 v2.4.3`: strict TOML configuration for the
+  v0.3.0 graph build system; its addition does not replace legacy YAML.
 
 Indirect requirements are `github.com/spf13/pflag v1.0.10` and
 `github.com/inconshreveable/mousetrap v1.1.0`, through Cobra. An indirect module
@@ -20,6 +22,12 @@ YAML decoder; retaining YAML configuration therefore requires a parser outside
 the standard library. Adopting a standard-library-only format such as JSON
 would be a configuration-format change, not an equivalent library substitution.
 Current YAML behavior is described in [Usage](HOW_TO_USE.md).
+
+The new graph model defaults to TOML for a single explicit project document.
+Go's standard library has no TOML decoder; the maintained parser is pinned to
+[v2.4.3](https://github.com/pelletier/go-toml/releases/tag/v2.4.3), the latest stable
+release observed during implementation. Parsing rejects unknown fields and
+redacts parser diagnostics that could contain configuration values.
 
 The usability additions introduce no new Go module dependencies. Cancellation,
 terminal control, schema constraints, and storage inspection use the standard

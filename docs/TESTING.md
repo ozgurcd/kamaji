@@ -11,19 +11,25 @@ Other validation commands are `go build ./...`, `go vet ./...`,
 The module requires Go 1.27.1. There is no repository Makefile verification
 target or configured Legattus project.
 
-The latest recorded full check is the
-[generic rule execution validation](#generic-rule-execution-validation--2026-09-29)
-below: 82.5% statement coverage, including the example Go program. Its source
-census contains 121 top-level tests (120 default and one tagged terminal
-integration test) and 557 static assertion/guard sites (556 default, one
-integration), under the predicate stated there. Earlier sections retain measurements of earlier trees; their
-percentages and test populations are not current totals.
+The latest recorded full validation is the
+[v0.3.0 release preparation](#v030-release-preparation--2026-09-30).
+The latest coverage profile is from the preceding
+[build-system gap closure](#build-system-gap-closure--2026-09-30): 80.1% statement
+coverage, including example executables that are exercised separately from the
+default coverage run. The preceding graph implementation's
+136-test/672-site census is historical (last measured 2026-09-30), not a current
+total: the gap closure adds `buildsys/path_regression_test.go`. Its attempted
+AST census was blocked and not retried. Earlier sections retain measurements
+of earlier trees; their percentages and test populations are not current totals.
 
 The current executor review and its trust boundary are documented in
 [Executor security](EXECUTOR_SECURITY.md). Its tests launch the Go test binary
 as a stand-in interpreter to check the real process boundary offline.
 
 ## What the tests exercise
+
+Graph tests and their latest verification are recorded in the dated build-system
+sections below. The following package overview describes the legacy runner.
 
 The general-review implementation adds strict YAML/error-redaction checks,
 independent command/executor instances, read-only CLI commands, maintenance
@@ -601,3 +607,354 @@ unchanged symbols and under-detects environment reads/error returns, so Git's
 manifest and executable tests establish scope and behavior. No Legattus project
 or repository-local wiki postcheck target exists here. The untracked kubeseal
 extension and ignored local findings/artifacts remain outside the release commit.
+
+## Graph build system verification — 2026-09-30
+
+The source-tree graph engine adds strict TOML/YAML build documents, dependency
+scheduling, content-based artifact caching, JSON plans/results/events, explicit
+effect permissions, affected-target queries, evidence records, and cleanup.
+The default scaffold is now TOML; legacy scaffold tests explicitly request
+`--template minimal` and continue exercising the old runner.
+
+New test files:
+
+- `buildsys/config_test.go`: document discovery, strict parsing, graph cycles,
+  unknown dependencies, output ownership, source/output overlap, and generated
+  executable dependency requirements.
+- `buildsys/plan_test.go`: stable content-bound plans, redacted environment
+  values, changed source/environment fingerprints, generated executables,
+  affected-target closure, missing inputs, and symlink rejection.
+- `buildsys/run_test.go`: subprocess execution, verified cache reuse and
+  restoration, corruption recovery, same-process evidence, dependency-aware
+  parallel execution, source changes before/during execution, policy rejection
+  and explicit permission, child failures, and timeouts.
+- `buildsys/clean_test.go`: read-only cleanup preview, source preservation,
+  retained evidence, and corrupt history rejection.
+- `buildsys/example_integration_test.go`: tagged real Go compilation, generated
+  executable consumption, deleted-output restoration, and rerun verification.
+- `cmd/build_test.go`: default TOML scaffolding, no-overwrite behavior, familiar
+  inspection commands, ignored-flag rejection, JSON plans/results, history, and
+  affected-target output.
+
+New APIs were first exercised before implementation. Focused failing regressions
+also preceded fixes for source changes after planning, absent cache explanations,
+ignored legacy flags, undeclared generated-tool dependencies, dot-slash generated
+executables, and corrupt evidence. During implementation an unused import and
+two patch-context mismatches were corrected before final validation. These were
+development errors, not passing checks or hidden hook bypasses.
+
+The full default suite passed:
+
+```sh
+go test ./... -count=1 -race -coverprofile=.audit/build-system.cover
+```
+
+```text
+ok  kamaji                          2.297s  coverage: 100.0% of statements
+ok  kamaji/buildsys                12.004s  coverage: 83.3% of statements
+ok  kamaji/cmd                      1.494s  coverage: 79.7% of statements
+ok  kamaji/config                   1.291s  coverage: 94.1% of statements
+    kamaji/examples/build-project                coverage: 0.0% of statements
+    kamaji/examples/go-rule/rules/hello           coverage: 0.0% of statements
+    kamaji/examples/release-workflow/rules/verify coverage: 0.0% of statements
+ok  kamaji/execroot                 1.359s  coverage: 82.2% of statements
+ok  kamaji/internal/fsutil          2.306s  coverage: 48.3% of statements
+ok  kamaji/internal/process         1.683s  coverage: 62.3% of statements
+?   kamaji/obj                      [no test files]
+ok  kamaji/rt                       1.280s  coverage: 78.8% of statements
+ok  kamaji/runner                  10.691s  coverage: 86.0% of statements
+ok  kamaji/target                   2.485s  coverage: 88.3% of statements
+ok  kamaji/tools                    1.273s  coverage: 87.8% of statements
+ok  kamaji/utils                    1.286s  coverage: 74.4% of statements
+```
+
+`go tool cover -func=.audit/build-system.cover` reports 79.7% aggregate statement
+coverage, compared with the earlier release tree's 80.6%. The profile includes
+uncovered example executables; their separate integration execution is not
+instrumented in this default profile.
+
+The tagged command was scoped to non-interactive packages:
+
+```sh
+go test -tags=integration ./buildsys ./examples/release-workflow -count=1 -race -v
+```
+
+It passed all selected tests, including:
+
+```text
+--- PASS: TestCompiledArtifactGraph (0.66s)
+--- PASS: TestBuildParallelDependencies (1.06s)
+PASS
+ok  kamaji/buildsys 12.620s
+=== RUN   TestReleaseWorkflow
+Inventoried 2 files -> out/inventory.json
+Verified 2 files and expected metadata
+Policy passed: 2 files, 78 bytes
+Wrote out/report.md
+Policy rejected: total bytes exceed budget
+Wrote out/report.md
+verify: size or SHA256 mismatch for "inputs/app.txt"
+--- PASS: TestReleaseWorkflow (0.81s)
+PASS
+ok  kamaji/examples/release-workflow 2.052s
+```
+
+`go build ./...`, `go vet ./...`, `staticcheck ./...`,
+`staticcheck -tags=integration ./buildsys ./examples/release-workflow`, and
+`go mod verify` passed. `govulncheck ./...` reported `No vulnerabilities found.`
+A Linux AMD64 binary was cross-built; its runtime was not exercised.
+
+A separately compiled CLI ran the checked-in Go graph and verified
+capabilities, a plan-bound build, cache hits, history identity, affected-target
+selection, read-only cleanup, and JSON event framing. Its second build reported
+`compile=cached, render=cached, check=executed`. The resulting greeting matched
+the expected contents. This proof is stored locally in the ignored
+`.audit/build-cli-proof.json`; it performs no infrastructure operation.
+
+The static census scans `main_test.go` and `*_test.go` under cmd, config,
+execroot, internal, rt, runner, target, tools, utils, examples, and buildsys.
+It counts `Test*` function declarations excluding TestMain and AST call sites
+to `t.Fatal`, `t.Fatalf`, `t.Error`, or `t.Errorf`; fixture guards and helper
+entrypoints count, table-driven sites count once, and scratch/dependencies are
+excluded. Using `ast-grep` with that predicate measured 136 tests and 672 sites,
+up from the preceding 122/576. The default subset is 133/646; tagged files
+contribute 3/26, summing to 136/672. The inventory is the preceding release
+inventory plus the six files listed above; `cmd/workflow_test.go` was modified
+to make its legacy-template selection explicit.
+
+The shared process implementation was unchanged, so its interactive PTY ceremony
+was not repeated. Graph children intentionally have no interactive stdin. Cache
+and effect declarations do not establish hermeticity or OS sandboxing; see the
+build guide and executor trust boundary. No extension implementation was changed.
+
+## Build-system gap closure — 2026-09-30
+
+The completion recheck found that glob inputs could bypass dependencies on
+generated directory trees and that affected-target queries missed normalized
+local executable paths. The new `buildsys/path_regression_test.go` first
+reproduced these defects and related failures before the fixes:
+
+- `TestOutputTreeGlobDependencies`: recursive, wildcard and character-class
+  patterns require output-tree producers; unrelated patterns remain valid;
+  a target cannot consume its own output tree.
+- `TestGeneratedDirectoryGlobBuild`: clean-workspace planning, execution and
+  cached directory restoration with generated glob inputs.
+- `TestAffectedLocalProgramPaths`: relative, dot-slash and absolute local
+  command/tool paths, directory changes, reverse dependencies and unrelated paths.
+- `TestAbsoluteGeneratedToolDependencies`: root-aware validation and planning
+  for absolute generated executable paths before the file exists.
+- `TestGeneratedFileParentInputs`: producer-created directory metadata does not
+  invalidate a plan, while source siblings still affect its identity.
+- `TestPlanAppliesValidationDefaults`: direct API callers receive plans with
+  the same defaults used by execution.
+
+The complete default suite passed:
+
+```sh
+go test ./... -count=1 -race -coverprofile=.audit/build-gap-fixes.cover
+```
+
+```text
+ok  kamaji                          2.609s  coverage: 100.0% of statements
+ok  kamaji/buildsys                 20.920s coverage: 84.8% of statements
+ok  kamaji/cmd                      1.624s  coverage: 79.7% of statements
+ok  kamaji/config                   1.407s  coverage: 94.1% of statements
+    kamaji/examples/build-project                coverage: 0.0% of statements
+    kamaji/examples/go-rule/rules/hello           coverage: 0.0% of statements
+    kamaji/examples/release-workflow/rules/verify coverage: 0.0% of statements
+ok  kamaji/execroot                 1.462s  coverage: 82.2% of statements
+ok  kamaji/internal/fsutil          2.433s  coverage: 48.3% of statements
+ok  kamaji/internal/process         1.840s  coverage: 62.3% of statements
+?   kamaji/obj                      [no test files]
+ok  kamaji/rt                       1.453s  coverage: 78.8% of statements
+ok  kamaji/runner                  11.557s  coverage: 86.0% of statements
+ok  kamaji/target                   2.602s  coverage: 88.3% of statements
+ok  kamaji/tools                    1.433s  coverage: 87.8% of statements
+ok  kamaji/utils                    1.432s  coverage: 74.4% of statements
+```
+
+`go tool cover -func=.audit/build-gap-fixes.cover` reports 80.1% aggregate
+statement coverage; the preceding graph tree measured 79.7%. Both production
+code and test coverage changed. Example execution in the separate integration
+command is not included in this default coverage profile.
+
+```sh
+go test -tags=integration ./buildsys ./examples/release-workflow -count=1 -race
+```
+
+```text
+ok  kamaji/buildsys 21.608s
+ok  kamaji/examples/release-workflow 2.296s
+```
+
+Native build, Linux AMD64 cross-build, `go vet ./...`, `staticcheck ./...`,
+`staticcheck -tags=integration ./buildsys ./examples/release-workflow`, and
+`go mod verify` passed. `govulncheck ./...` reported `No vulnerabilities found.`
+The shared process implementation was unchanged;
+interactive terminal validation was not repeated. Linux runtime behavior was
+not exercised.
+
+A freshly compiled CLI reproduced both original cases with corrected outcomes:
+`affected` includes the local executable's target and its reverse dependencies;
+an undeclared directory-glob dependency fails before runtime storage or output
+mutation. Adding the dependency executes the producer first and the consumer
+reads the new content. Default TOML scaffolding also builds successfully.
+Synthetic fixtures and structured results are retained locally under
+`.audit/closed-build-gaps-cfl_t4ty/` and are ignored by Git.
+
+The existing test inventory gains only `buildsys/path_regression_test.go` in
+this slice. A Python-wrapped AST census was blocked by the workspace hook;
+work stopped until the owner explicitly authorized continuation. That command
+was not retried, and no new total test/assertion census is claimed. Gograph
+remained the source-discovery tool. Passing suites and these focused proofs
+close the reported gaps; they are not a proof of exhaustive correctness.
+
+## Build-system requirements recheck — 2026-09-30
+
+An independent pass checked the working tree after the graph gap closure, based
+on HEAD `18bd686b43cdc7395b6698bced041b008d830ae5` plus the uncommitted graph
+implementation and fixes. This is working-tree evidence, not a claim that the
+published v0.2.0 binary contains these features. No source or tests changed in
+that verification pass.
+
+These commands all passed:
+
+```sh
+go test ./... -count=1 -race
+go test -tags=integration ./buildsys ./examples/release-workflow -count=1 -race
+go build -o .audit/kamaji-requirements-check .
+go vet ./...
+staticcheck ./...
+git diff --check
+```
+
+The tagged suites exercised the compiled Go artifact graph and the local
+Python/Go/Ruby/JavaScript release workflow. No test/assertion census or new
+coverage profile was produced; the preceding gap-closure coverage measurement
+retains its original scope.
+
+A separately compiled CLI was exercised in disposable local projects. The
+observed results were:
+
+- Fresh `init`, `validate --all`, `doctor`, `targets`, and `build` succeeded;
+  an explicitly selected graph-schema YAML document also built.
+- Planning did not create `.kamaji`; a matching `--expect-plan` executed, while
+  a source change rejected the old plan and preserved the previous output.
+- Repeated builds reused the producer and reran its uncached checker. Cache
+  availability did not change the same-input plan ID; source changes caused
+  execution, and `--no-cache` bypassed reuse.
+- Altered outputs were restored; corrupt cache payloads caused regeneration
+  and repair rather than acceptance.
+- `affected` selected a changed source's producer and consumer. Capabilities,
+  plans, results, history, and event records parsed as JSON. History matched the
+  emitted result, and child output stayed on stderr during event streaming.
+- Declared external effects were denied without creating a marker and permitted
+  with `--allow-effects`. This proof used synthetic local file creation.
+- A child exit of 7 was preserved; its dependent was blocked without executing.
+  A timed-out child returned 124.
+- Cleanup previews preserved files. Requested output/cache/history cleanup
+  removed those artifacts while preserving source files.
+
+Local detailed evidence is retained in ignored
+`.audit/requirements-verification.txt` and
+`.audit/requirements-check-dc2m7je5/requirements-result.json`; these are not
+published project dependencies. Tests and documented example commands provide
+reproducible checks for another checkout. See the
+[Go build walkthrough](../examples/build-project/README.md) and
+[agent workflow example](AGENT_WORKFLOWS.md).
+
+This establishes the exercised declared-input behavior, not exhaustive
+correctness, hermeticity, OS sandboxing, remote execution, or automatic import
+inference. No infrastructure extension, live network service, interactive PTY,
+Bazel performance comparison, or other-platform runtime was checked in this
+pass. The read-only gograph session completed with 7 successful commands and no
+failed commands; plan/review were not run because there were no Go edits.
+
+### Documentation examples checked on 2026-09-30
+
+The subsequent documentation-only refresh built the CLI with `make build` and
+checked command help against the graph reference. It executed the Python block
+in [Agent workflows](AGENT_WORKFLOWS.md) unchanged: planning, plan-bound build,
+and equality of the emitted result and saved history all passed.
+
+The [Go walkthrough](../examples/build-project/README.md) passed repeated cache
+reuse, cleanup preview, output deletion/restoration, affected selection, explain,
+and explicit cache bypass. Repeated and restored builds reported `cached` for
+`compile` and `render`, and `executed` for `check`. Forced execution reported
+`executed` for every target. The focused integration command produced:
+
+```text
+=== RUN   TestCompiledArtifactGraph
+--- PASS: TestCompiledArtifactGraph (1.21s)
+PASS
+ok  	kamaji/buildsys	1.612s
+```
+
+Command: `go test -tags=integration ./buildsys -run '^TestCompiledArtifactGraph$' -count=1 -v`.
+The test is in `buildsys/example_integration_test.go`. Local Markdown file and
+heading links and `git diff --check` were also checked. No Go source or test
+changed, and no assertion census or full-suite rerun was needed for this prose
+refresh; the preceding full validation remains separately recorded above.
+
+## v0.3.0 release preparation — 2026-09-30
+
+The release includes the graph implementation and regression fixes recorded
+above, documentation, and Homebrew packaging. No Go source or test was changed
+by the packaging slice. The full offline command was:
+
+```sh
+go test ./... -count=1 -race
+```
+
+```text
+ok  kamaji                     2.496s
+ok  kamaji/buildsys           20.529s
+ok  kamaji/cmd                 1.712s
+ok  kamaji/config              1.415s
+?   kamaji/examples/build-project [no test files]
+?   kamaji/examples/go-rule/rules/hello [no test files]
+?   kamaji/examples/release-workflow/rules/verify [no test files]
+ok  kamaji/execroot            1.539s
+ok  kamaji/internal/fsutil     2.419s
+ok  kamaji/internal/process    1.888s
+?   kamaji/obj [no test files]
+ok  kamaji/rt                  1.645s
+ok  kamaji/runner             11.741s
+ok  kamaji/target              2.671s
+ok  kamaji/tools               1.469s
+ok  kamaji/utils               1.463s
+```
+
+The local integration command was:
+
+```sh
+go test -tags=integration ./buildsys ./examples/release-workflow -count=1 -race
+```
+
+```text
+ok  kamaji/buildsys                  21.709s
+ok  kamaji/examples/release-workflow   2.382s
+```
+
+`go vet ./...`, `staticcheck ./...`, and `go mod verify` passed;
+`govulncheck ./...` reported `No vulnerabilities found.` This is the scanner's
+result at release preparation, not a permanent vulnerability guarantee.
+No new coverage profile or assertion census was produced. The tagged example
+tests are `buildsys/example_integration_test.go` and
+`examples/release-workflow/workflow_test.go`.
+
+`make release-assets` produced macOS/Linux archives for AMD64 and ARM64, each
+containing only `kamaji` and `LICENSE`. The formula generator first rejected a
+deliberately invalid checksum without emitting a formula, then passed using
+verified archives. `brew style` initially required a frozen-string comment;
+that was added and the generated formula passed with no offenses. A version
+smoke assertion initially captured stdout only; the existing version command
+writes to stderr, so the formula and smoke capture include stderr. No CLI
+behavior was changed to satisfy that assertion.
+
+The packaged macOS ARM64 binary reported v0.3.0 and passed capabilities,
+read-only planning, execution bound to the plan ID, output restoration from
+cache, and exact saved-history equality. Other platform assets were cross-built,
+not executed. Interactive PTY and real infrastructure-extension ceremonies were
+not repeated by this packaging slice. Homebrew installation and its formula
+test are post-publication checks, separate from these preparation results.
